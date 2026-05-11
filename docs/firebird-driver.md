@@ -92,9 +92,9 @@ not need it because tab count is modest.
 | BLOB streaming (text + binary) | Yes | Limited |
 | ARRAY columns | Yes | Partial |
 | BOOLEAN | Yes | Yes |
-| DECFLOAT (FB 4+) | Yes | TBD; file rsfbclient issue if missing |
-| INT128 (FB 4+) | Yes | TBD |
-| TIME ZONE types (FB 4+) | Yes | TBD |
+| DECFLOAT (FB 4+) | Server returns, rsfbclient maps as TBD | TBD |
+| INT128 (FB 4+) | Server returns, rsfbclient maps as TBD | TBD |
+| TIME ZONE types (FB 4+) | Server returns, rsfbclient rejects column type 32754 (verified May 2026) | Same — rsfbclient's value enum lacks variants |
 | Encryption (DbCrypt + KeyHolder) | Yes via fbclient | No (no callback API exposed) |
 | Events (`POST_EVENT` / register) | Yes | Limited |
 | Service API (gbak, gstat, user manager) | Yes | No |
@@ -115,6 +115,30 @@ list, one truth. See [napi-rsfbclient.md](./napi-rsfbclient.md).
 
 - Expose `isc_dpb_crypt_key` and the encryption callback path (required
   to drop the KeyHolder.conf workaround). Foundation-funded contribution.
-- Verify DECFLOAT / INT128 / TIME ZONE coverage in pure-Rust mode and
-  file PRs where gaps exist.
+- Add `SqlType` variants for FB 4+ `DECFLOAT`, `INT128`, and TIME ZONE
+  types so both backends can return them rather than failing with
+  "Unsupported column type". Confirmed reproducible in both native and
+  pure-Rust modes against FB 5.0.4 on `SELECT CURRENT_TIMESTAMP`.
 - Wire encryption negotiation surface (SRP-256, ChaCha) audit.
+
+## macOS bundling notes
+
+The Firebird 5 macOS arm64 release is distributed as a framework
+(`/Library/Frameworks/Firebird.framework/`). `libfbclient.dylib`
+inside the framework references `@rpath/lib/libtommath.dylib`. When the
+framework is loaded from outside `/Library/Frameworks/`, the loader
+binary's rpath chain does not include the framework directory, so the
+dependent dylib lookup fails.
+
+Two viable bundling strategies for the desktop installer:
+
+1. **Install location** — drop the framework at
+   `/Library/Frameworks/Firebird.framework/` during installation. Works
+   but conflicts with user-managed Firebird installs.
+2. **Bundle + DYLD_LIBRARY_PATH** — ship the framework under
+   `Plamenix.app/Contents/Resources/fbclient/v50/` and have the Tauri
+   loader set `DYLD_LIBRARY_PATH=<framework>/Resources/lib` before any
+   fbclient call. This is what dev runs use today.
+
+A third option — `install_name_tool -add_rpath @loader_path/..` — fails
+because the dylib header has no padding for additional load commands.
