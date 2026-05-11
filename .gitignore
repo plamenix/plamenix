@@ -1,0 +1,31 @@
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Editors
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Logs / tmp
+*.log
+*.tmp
+tmp/
+logs/
+
+# Local overrides
+.envrc
+.env.local
+*.local
+justfile.local
