@@ -13,6 +13,10 @@ dev tooling that wires the sibling repos together.
   five repos.
 - `CODE_OF_CONDUCT.md` — Contributor Covenant.
 - `LICENSE-MIT`, `LICENSE-APACHE` — dual licence text.
+- `docs/` — architectural specs, design notes, and ADRs. Deep technical
+  context that should outlive any single conversation lives here. See
+  `docs/README.md` for the index and `docs/adr/` for the decision
+  records.
 - `justfile` — entry point for cross-repo commands (`just setup`,
   `just dev`, `just build`, `just test`).
 - `scripts/setup.sh` — wires sibling repos for local development.
@@ -24,11 +28,14 @@ dev tooling that wires the sibling repos together.
 
 - Application code (Tauri shell, web server, React components, plugin host)
   lives in the sibling `plamenix-*` repos.
-- Per-repo build, test, and architecture rules live in each sibling repo's
+- Per-repo build, test, and code-style rules live in each sibling repo's
   own `CLAUDE.md`.
-- Architecture decision records (ADRs), API documentation, and detailed
-  design specs accrete in the relevant sibling repo *after* code lands.
-  Speculative documentation is not committed here.
+- Per-repo API documentation that mirrors source code lives in the
+  relevant sibling repo, alongside the code it documents.
+
+Cross-repo architectural decisions and design specs DO live here in
+`docs/`. That is what `docs/` is for — durable context that spans the
+whole project and must survive conversation refreshes.
 
 ## Workflow
 
