@@ -1,8 +1,18 @@
 # plamenix — meta-workspace
 
-This repo orchestrates the five Plamenix repositories. It holds no product
+This repo orchestrates the six Plamenix repositories. It holds no product
 code. Its job: documentation, roadmap, contributor onboarding, and local
 dev tooling that wires the sibling repos together.
+
+The siblings under the parent workspace dir (`~/Projects/plamenix/`):
+
+- `plamenix-core/` — shared Rust crates.
+- `plamenix-ui/` — shared React library.
+- `plamenix-desktop/` — Tauri desktop edition.
+- `plamenix-web/` — Fastify (Node) + React web edition.
+- `plamenix-branding/` — brand assets (logo, favicons, OG images). All
+  binary art lives here; product repos consume it by path at build
+  time. See [`docs/look-and-feel.md`](./docs/look-and-feel.md).
 
 ## What lives here
 
@@ -10,7 +20,7 @@ dev tooling that wires the sibling repos together.
   milestones land.
 - `README.md` — user-facing project overview.
 - `CONTRIBUTING.md` — how to set up a local dev environment across all
-  five repos.
+  six repos.
 - `CODE_OF_CONDUCT.md` — Contributor Covenant.
 - `LICENSE-MIT`, `LICENSE-APACHE` — dual licence text.
 - `docs/` — architectural specs, design notes, and ADRs. Deep technical

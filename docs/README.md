@@ -38,6 +38,12 @@ exploration — every line reflects a choice the project has committed to.
 - [splash-window.md](./splash-window.md) — JetBrains-style splash
   window, plugin loading flow.
 
+### Visual style
+
+- [look-and-feel.md](./look-and-feel.md) — Port visual style from the
+  `firebird-web-client` MVP; consume `plamenix-branding` sibling repo
+  for logo/favicons/OG; no binary art in product repos.
+
 ### Firebird
 
 - [firebird-driver.md](./firebird-driver.md) — rsfbclient native + pure
