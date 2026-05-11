@@ -59,6 +59,13 @@ Plamenix documents this requirement to users and ships a sample
 `KeyHolder.conf`. Upstream PR to add `isc_dpb_crypt_key` is scheduled
 as Foundation-funded contribution back in M1 timeframe.
 
+End-to-end "Plamenix-as-client-keyholder" (driver acts as the key
+holder, no sidecar `keyholder.dll` needed) is deferred past
+`1.0.0-beta` — see ADR
+[`0019-defer-client-keyholder-integration.md`](./adr/0019-defer-client-keyholder-integration.md)
+for the three blocking arcs (rsfbclient KeyHolder API, native
+keyholder C shim, bundled DbCrypt option).
+
 ## M1 scope (`1.0.0-beta`)
 
 **MUST ship:**

@@ -55,3 +55,4 @@ Date:   YYYY-MM-DD
 | 0016 | [OS keyring for encryption secrets from day one](./0016-encryption-os-keyring-day-one.md) | Accepted |
 | 0017 | [ESM-only React library](./0017-esm-only-ui-library.md) | Accepted |
 | 0018 | [pnpm as the only supported Node package manager](./0018-pnpm-package-manager.md) | Accepted |
+| 0019 | [Defer Plamenix-as-client-keyholder integration](./0019-defer-client-keyholder-integration.md) | Accepted |
