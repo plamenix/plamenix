@@ -4,6 +4,21 @@ Every Plamenix plugin ships a `manifest.toml` at the root of its `.plx`
 bundle. The manifest is the single source of truth for plugin metadata,
 host compatibility, requested capabilities, and contribution points.
 
+A JSON Schema (Draft 2020-12) describing the manifest lives at
+`plamenix-core/crates/plamenix-plugin-host/schema/manifest.schema.json`
+and is published canonically at
+`https://plamenix.dev/schemas/plugin-manifest-1.0.0.json`. Editors that
+support TOML schema hints (e.g. `taplo`, the JetBrains TOML plugin)
+pick it up automatically when the manifest's first non-blank line is:
+
+```
+#:schema https://plamenix.dev/schemas/plugin-manifest-1.0.0.json
+```
+
+The host's `Manifest::parse` performs the runtime validation; the JSON
+Schema serves authoring tools (autocomplete, hover docs, IDE diagnostics,
+external CI lints) and is kept in lockstep with the Rust types.
+
 ## Schema
 
 ```toml
