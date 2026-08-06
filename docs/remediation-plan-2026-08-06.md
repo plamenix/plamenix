@@ -167,7 +167,9 @@ The original recommendation was "represent NUMERIC and BIGINT as strings on the 
 
 **Transactions done 2026-08-06.** Manual commit alongside autocommit, end to end. Two attachments per session: `work` for the user's statements, and a read-only read-committed `meta` for Plamenix's own schema/dashboard/ping reads, so background chatter never joins the user's transaction and browsing holds nothing open. Isolation (read-committed or snapshot) and lock resolution (`WAIT` with optional timeout, or `NO WAIT`) are exposed; `consistency` is omitted deliberately, since it takes table-level locks. Savepoints are out by decision — additive later, no rework forced. Verified on Firebird 5.0.4 **and** 2.5.9.
 
-**Still open:** the FB 2.5 MON$ version gating — the 2.5 container now exists and reproduces the failure (`MON$OWNER` and `MON$CRYPT_STATE` are unknown columns there).
+**FB 2.5 version gating done 2026-08-06.** Probing both engines showed `MON$OWNER` and `MON$CRYPT_STATE` are the only monitoring columns Plamenix reads that 2.5 lacks. Each session records the engine major version, probed at attach; `MON$OWNER` is substituted below 3.0 and `crypt_state` answers without querying, since 2.5 has no native encryption at all. Covered by `tests/version_gating.rs` on both containers.
+
+**Wave 2 is complete.**
 
 Original description follows.
 
