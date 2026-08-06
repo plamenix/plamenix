@@ -8,6 +8,40 @@ gracefully. The host never crashes from a permission failure.
 The model is inspired by Tauri's capability system and Deno's explicit
 grant model.
 
+## Enforcement layers
+
+There is no single enforcement choke point. Capabilities are checked
+at four distinct moments, each closing a different class of leak:
+
+1. **Manifest parse time** — `Manifest::parse` runs the grammar over
+   every capability string + enforces structural rules (e.g.
+   `requires_subprocess = true` must be paired with the
+   `runtime.subprocess` capability in `[permissions].required`).
+   Failures surface as `PluginError::InvalidCapability` /
+   `PluginError::MissingSubprocessCapability` before the plugin ever
+   reaches the activator. Coverage: every code path that loads a
+   manifest, including the loader, the install endpoint, and
+   `plamenix validate`.
+2. **Install-time consent** — the install dialog (I7.1) shows required
+   permissions as a batch + optional permissions as a collapsed
+   disclosure with per-permission checkboxes. The user either accepts
+   the entire required batch or cancels; the optional subset they tick
+   is recorded as the initial grant set.
+3. **First-use prompt** — when a plugin tries to use an optional
+   permission that the user skipped at install time (I7.2), a runtime
+   prompt offers `Allow once` / `Allow always` / `Deny`. `Allow always`
+   persists; `Allow once` satisfies a single call without persisting.
+4. **Runtime gate** — each host function exposed via WIT performs a
+   capability check before doing the actual work. Failed checks return
+   `PluginError::PermissionDenied`. The plugin can recover gracefully
+   or surface a clear error.
+
+The host's `Supervisor` (I8.1) and `InstanceRegistry` (I8.2) are
+NOT in the enforcement path; they manage lifecycle, not access. The
+Permissions panel (I7.3) reads the current grant set + lets the user
+revoke optional permissions; revocation takes effect on the next
+host call.
+
 ## Capability grammar
 
 A capability is a dotted name with optional scope:
@@ -16,108 +50,200 @@ A capability is a dotted name with optional scope:
 <resource>.<action>[.<scope>]
 ```
 
-Examples:
+Examples (the full Rust `Permission` enum is the source of truth):
 
 ```
 db.read.any                                 # read every table
-db.write.table.users                        # write only to the "users" table
-export.format                               # produce any export format
+db.read.table.<name>                        # read only one table
+db.write.any                                # write every table
+db.write.table.<name>                       # write only one table
+db.ddl.any                                  # DDL on every table
+db.ddl.table.<name>                         # DDL on one table
+db.schema.list                              # list tables/views/procedures
+db.schema.describe                          # describe one object's columns
 net.https                                   # any HTTPS endpoint
-net.https.api.example.com                   # only api.example.com
-fs.read.dir.downloads                       # only ~/Downloads
-fs.write.dir.plugin-data                    # only plugin's private data dir
-auth.os.windows                             # Windows Credential Manager
-auth.os.macos                               # macOS Keychain
-clipboard.read
-clipboard.write
-runtime.subprocess                          # implies requires_subprocess=true
+net.https.<host>                            # only one HTTPS host
+runtime.subprocess                          # opt out of WASM sandbox
 ```
 
-Wildcards are not supported. Each capability that matters must be
+Wildcards are NOT supported. Each capability that matters must be
 listed explicitly. This prevents accidental over-granting via broad
 patterns.
 
-## Capability classes
+The full enumeration ships in
+[`plamenix-plugin-host/src/capability.rs`](https://github.com/plamenix/plamenix-core/blob/main/crates/plamenix-plugin-host/src/capability.rs).
+Adding a capability there requires:
+
+1. Adding the variant to the `Permission` enum.
+2. Wiring its parse arm in `Permission::parse`.
+3. Wiring its `Display` arm.
+4. Adding the runtime gate at the host-import call site that consumes
+   it.
+
+## Capability classes (M1 reality)
+
+The classes below reflect what's actually wired in M1. Items marked
+**(M2)** appear in the grammar but have no runtime gate yet — plugins
+that declare them can pass the manifest parser, but the corresponding
+host import doesn't exist.
 
 ### Database
+
 - `db.read.any`, `db.read.table.<name>`
 - `db.write.any`, `db.write.table.<name>`
 - `db.ddl.any`, `db.ddl.table.<name>`
-- `db.txn.<isolation>` — explicit transaction isolation level
 - `db.schema.list`, `db.schema.describe`
 
-### Export / import
-- `export.format` — register or invoke an export format
-- `import.source` — register or invoke an importer
+Runtime gates: implemented in the napi binding's `host_state.rs` (web
+edition) + the desktop Tauri command bridge. Plugins that don't
+declare a `db.*` capability cannot invoke the corresponding driver
+call.
 
 ### Network
-- `net.https`, `net.https.<host>`
-- `net.http` — discouraged; requires user confirmation
-- `net.outbound.<protocol>` — for non-HTTP protocols
 
-### Filesystem
-- `fs.read.dir.<id>` — `id` ∈ {`downloads`, `documents`, `temp`,
-  `plugin-data`, `plugin-config`}
-- `fs.write.dir.<id>`
-- Absolute paths are never granted directly; plugins receive logical
-  directory aliases that the host resolves.
+- `net.https`, `net.https.<host>` *(M2 — runtime gate pending alongside
+  the SDK's HTTPS helper)*
 
-### Auth
-- `auth.os.windows`, `auth.os.macos`, `auth.os.linux-keyring`
-- `auth.session.read`, `auth.session.write`
+### Filesystem **(M2)**
 
-### Clipboard / OS
-- `clipboard.read`, `clipboard.write`
-- `os.notify` — show OS notification
-- `os.open-url` — request the OS open a URL
+Currently absent from the grammar — plugins that need filesystem
+access ship as subprocess plugins. Logical-directory grants (`fs.read.dir.<id>`)
+land in M2 alongside the WASI preopens wiring.
+
+### Auth **(M2)**
+
+OS-keyring access lives in `plamenix-secrets` today but isn't
+exposed to plugins. M2 will add `auth.os.macos` / `auth.os.windows` /
+`auth.os.linux-keyring` once the host import surface lands.
+
+### Clipboard / OS **(M2)**
+
+Same status as filesystem — grammar pending alongside the host
+import.
 
 ### Runtime
-- `runtime.subprocess` — must be paired with
-  `runtime.requires_subprocess = true` in the manifest; granting it
+
+- `runtime.subprocess` — MUST be paired with
+  `runtime.requires_subprocess = true` in the manifest. The manifest
+  parser refuses bundles where either side is missing. Granting it
   drops the plugin out of the WASM sandbox into a separate subprocess
-  with full IPC isolation. Triggers a stricter install-time warning.
+  with full IPC isolation. Triggers a stricter install-time warning
+  in the install dialog.
 
-## Install-time consent
+## Install-time consent (I7.1)
 
-At install, the user sees a dialog summarising requested capabilities:
+At install, `PluginInstallDialog` shows the requested capabilities:
 
-```
-CSV Exporter wants permission to:
-  ✓ Read any database table          (db.read.any)
-  ✓ Produce export formats           (export.format)
-  ? Make HTTPS requests              (net.https)
-[Allow]  [Deny]  [Customize…]
-```
+- **Required permissions** render as an amber-bordered batch panel
+  with `AlertTriangle` icon + copy: *"Installing this plugin grants
+  every permission in this batch. Cancel to refuse."* The user
+  cannot opt out of individual required permissions — accept all or
+  cancel.
+- **Optional permissions** sit behind a collapsed disclosure
+  (`"Show optional permissions"`). Expanding shows a per-capability
+  checkbox; the user toggles only what they want to grant. The
+  confirm button submits the chosen subset.
 
-`Customize` opens a fine-grained view where the user can grant or deny
-each capability individually, including narrowing wildcard requests
-(e.g., grant `net.https.api.example.com` only).
+On confirm, the host calls `plugin_install(pluginId, grantedOptional)`
+on its native side (Tauri command on desktop; HTTP route on web).
+The grant set is persisted alongside the install.
 
-## Runtime enforcement
+## First-use prompt (I7.2)
+
+A plugin runtime-requesting a capability the user skipped at install
+gets `FirstUsePermissionPrompt`:
+
+| Choice | Effect |
+|---|---|
+| **Deny** | Refuses the call. Future requests re-prompt. |
+| **Allow once** | Satisfies this call only. Future requests re-prompt. |
+| **Allow always** | Satisfies this call AND persists the grant. Future requests skip the prompt. |
+
+There is intentionally no `Deny always` — the three-way shape is
+documented in the I7.2 component. Plugins that need a permanent
+refusal can be uninstalled via the Permissions panel (I7.3).
+
+## Permissions panel (I7.3 / I7.4)
+
+The Permissions panel is the audit + revoke surface. It renders a
+flat table with one row per `(plugin, permission)` pair:
+
+| Kind / Status | Action |
+|---|---|
+| Required + Granted | **"Uninstall to revoke"** copy (no button — revoke would break the plugin). |
+| Required + Pending | **Grant** button (rare; arises if the install was interrupted). |
+| Optional + Granted | **Revoke** button (red-bordered). |
+| Optional + Revoked | **Grant** button (emerald-bordered). |
+
+The panel also surfaces supervision state (I7.4 / I8.5) — status
+pill, crash-budget bar, restart count, and a Re-enable button when
+a plugin has been Disabled by the supervisor.
+
+## Runtime enforcement detail
 
 - The host maintains the granted capability set per plugin instance.
-- Each host function exposed via WIT performs a capability check before
-  executing.
-- Failed checks return `PluginError::PermissionDenied`. The plugin can
-  observe the error and either:
-  - Fail gracefully and surface a clear message to the user.
-  - Request elevation via a host helper (which prompts the user).
+- Each host function exposed via WIT performs a capability check
+  before executing the underlying operation.
+- Failed checks return `PluginError::PermissionDenied`. The plugin
+  can recover gracefully + surface a clear message.
+- The check happens BEFORE the operation runs — no partial side
+  effects can leak through.
 
-## Manifest enforcement
+## Manifest enforcement detail
 
-- A capability used at runtime but absent from `permissions.required`
-  or `permissions.optional` is treated as an error: the host refuses
-  the call and emits a strong warning. This prevents capability
-  smuggling.
+- A capability used at runtime but absent from
+  `permissions.required` OR `permissions.optional` is rejected at
+  the host import. This prevents capability smuggling via crafted
+  argv to a subprocess plugin or via a host import callable without
+  the explicit grant.
+- The manifest parser surfaces typed errors for every malformed
+  capability — see I9.3's
+  [`tests/capability_enforcement.rs`](https://github.com/plamenix/plamenix-core/blob/main/crates/plamenix-plugin-host/tests/capability_enforcement.rs).
 
 ## Trust tiers and capability default-deny
 
-| Trust tier | Default for risky capabilities |
-|------------|--------------------------------|
-| Official | Granted at install with confirmation. |
-| Verified | Granted at install with confirmation. |
-| Community | Defaults to deny for `net.*`, `fs.*`, `runtime.subprocess`; user must explicitly opt in. |
-| Sideload | Same as community; install dialog adds a "developer mode only" warning. |
+Signature verification (I7.15 + I7.16) sets the trust tier. The
+install dialog renders the signature state inline:
 
-The capability set requested in the manifest is the **maximum** a plugin
-can use; the granted set may be smaller.
+| Status | Badge | Effect on install button |
+|---|---|---|
+| `verified` (signed + signature checks out) | Emerald `ShieldCheck` pill carrying the key id | Enabled. |
+| `unsigned` (no `signature.json` in the archive) | Red `ShieldX` pill | Enabled — but user sees red banner copy *"Install only if you trust the source."* |
+| `invalid` (signature failed cryptographic verification) | Amber `ShieldAlert` pill, `role="alert"` | Enabled — banner warns of likely tampering. Future M2 setting can disable installs entirely. |
+
+The capability set requested in the manifest is the **maximum** the
+plugin can use; the granted set may be smaller. Optional permissions
+the user skipped at install + later denied at the first-use prompt
+are NOT granted; the manifest declaring them isn't enough.
+
+Trust tier vs default-deny matrix (M1):
+
+| Trust tier | Default for risky capabilities |
+|---|---|
+| **Verified signature** | Granted on confirm via the install dialog. |
+| **Unsigned** | User sees the red banner before granting; required perms still require explicit confirm. |
+| **Invalid signature** | Same as unsigned with stronger warning copy. M2 may refuse installs entirely behind a `requireSignature` setting. |
+
+## Where the code lives
+
+| Concern | Crate / file |
+|---|---|
+| `Permission` enum + parser | `plamenix-plugin-host/src/capability.rs` |
+| Manifest enforcement (`requires_subprocess`) | `plamenix-plugin-host/src/manifest.rs` |
+| Subprocess defense-in-depth re-check | `plamenix-plugin-host/src/subprocess.rs` |
+| Install dialog | `plamenix-ui/src/plugins/PluginInstallDialog.tsx` |
+| First-use prompt | `plamenix-ui/src/plugins/FirstUsePermissionPrompt.tsx` |
+| Permissions panel | `plamenix-ui/src/plugins/PermissionsPanel.tsx` |
+| Signature verifier | `plamenix-plugin-host/src/signing.rs` |
+| Signature banner | `plamenix-ui/src/plugins/PluginInstallDialog.tsx` (`SignatureBanner`) |
+| Capability enforcement tests | `plamenix-plugin-host/tests/capability_enforcement.rs` |
+
+## See also
+
+- [`plugin-architecture.md`](./plugin-architecture.md) — wider design.
+- [`plugin-manifest.md`](./plugin-manifest.md) — `[permissions]` field
+  syntax + every required/optional table layout.
+- [`plugin-events.md`](./plugin-events.md) — `permission/*` event
+  topics (denied calls, grant changes).
+- [`plugin-interceptors.md`](./plugin-interceptors.md) — chain that
+  fires before sensitive actions (query.executing, etc.).

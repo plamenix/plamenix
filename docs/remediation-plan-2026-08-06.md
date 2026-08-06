@@ -1,0 +1,181 @@
+# Plamenix — Remediation Plan to 1.0.0-beta
+
+Companion to `ARCHITECTURE_REVIEW_2026-08-06.md` (13 critical + 36 major confirmed findings).
+Written 2026-08-06 after independently re-establishing build/test truth on this machine.
+
+---
+
+## 1. Verified baseline (measured, not claimed)
+
+| Target | Compiles | Tests |
+|---|---|---|
+| plamenix-core (9 crates, libs) | yes | 198 pass, 0 fail |
+| plamenix-core `plamenix-db` tests | **no** — `crypt.rs:18`, `smoke.rs:12` missing `embedded` | cannot run |
+| plamenix-desktop `src-tauri` (all targets) | yes | — |
+| plamenix-desktop TypeScript | yes | — |
+| plamenix-ui TypeScript | yes | 717 pass, **4 fail** in 2 files |
+| plamenix-web `fbclient-node` (lib) | **no** — `src/lib.rs:132`, `:401` missing `embedded` | cannot run |
+| plamenix-web `plugin-host-node` | yes | — |
+| plamenix-web client TypeScript | **no** — `App.tsx:414` missing `embedded` | — |
+
+**The desktop edition builds. The web edition does not build at all** — neither its native DB binding nor its client.
+
+### The two live proofs that "done" was mis-defined
+
+1. **1,804 of 4,991 lines (36%) of the plugin host have zero call sites in either shell.** Measured: `EpochTicker`, `InstanceRegistry`, `Supervisor`, `EventBus`, `handle_event` — all return 0 hits across `plamenix-desktop/src-tauri/src` and `plamenix-web/packages/plugin-host-node/src`. Their own unit tests are part of the 198 that pass.
+2. **`plamenix-ui` ships 4 failing tests that document known-broken behavior**, left red rather than fixed:
+   - `tabs-store.test.ts` — expects the persisted password to be `''`, gets `'masterkey'`.
+   - `default-sections.test.ts` (×3) — expects 4 dashboard sections, code registers 2 (`tips`, `recent-queries`); `Connection` and `Entity counts` were never written. I5.10 is marked done.
+
+Root cause behind both: **the tracker's definition of done was "the module exists and its unit tests pass," not "the product calls it."** Unless that definition changes, the same gap regrows. See §6.
+
+### One finding is worse than the review reported
+
+`plamenix-ui/src/db/tabs-store.ts:187-191` — `sanitiseForm()` does not merely fail to clear the password; it **writes `password: 'masterkey'` into every persisted tab**, and `inflateTab()` (line 216) re-injects it on load. `masterkey` is Firebird's default SYSDBA password. The effect is not leaking the user's secret — it is *injecting a credential* into the form so a user who reloads and clicks Connect authenticates as SYSDBA/masterkey without noticing. The code carries its own instruction: `REMOVE before deploy`.
+
+---
+
+## 2. The 49 findings collapse into 8 root causes
+
+Treating them as 49 independent bugs would triple the work. They are:
+
+| # | Root cause | Findings | Character |
+|---|---|---|---|
+| A | Plugin runtime is never instantiated — Store dropped after `activate()`, no epoch ticker, no event dispatch, no supervisor | ~13 | one architectural gap |
+| B | The `embedded` field rollout was never propagated | 5 | mechanical |
+| C | Firebird data fidelity — exact numerics, BIGINT, time zones, schema types | ~6 | type-system change across repos |
+| D | SQL statement handling — splitter, SELECT heuristics, `ROWS` injection, no transaction lifecycle | ~5 | bounded, high-confidence |
+| E | Web edition was never finished as a product — no auth, no deploy path, no session lifecycle | ~8 | product design, not bugfix |
+| F | Plugin trust model is nominal — no signing trust root, self-attested caps and limits | ~6 | design decision + code |
+| G | Docs assert behavior the code does not have | ~6 | mostly downstream of A and F |
+| H | Shell duplication and dead parallel implementations in the UI | ~5 | refactor |
+| I | The destructive write-back path was never reviewed | critic gap | needs a human-eyes pass |
+
+---
+
+## 3. Three decisions only you can make
+
+**DECIDED 2026-08-06.** Answers recorded inline below; §4 and §5 reflect them.
+
+| Question | Decision |
+|---|---|
+| Q1 web edition | **Localhost-only, single-user** (as recommended) |
+| Q2 plugin runtime | **Full runtime including interceptors** — larger than recommended; §4 Wave 4 re-scoped |
+| Q3 subprocess hatch | **Delete it** (as recommended) |
+
+My recommendation for each, with reasoning.
+
+### Q1 — Does 1.0.0-beta include the web edition?
+
+Today it does not compile, has **zero authentication on every route** (including SQL execution and plugin admin), lets an unauthenticated request body choose the native library the server `dlopen()`s, never reaps Firebird attachments, buffers whole exports in a process shared by all users, and has 2 tests for the entire server.
+
+**Recommendation: ship it as localhost-only, single-user, with network exposure refused — not as a multi-user web app.**
+
+Bind `127.0.0.1` only and hard-refuse `0.0.0.0`; add Origin/CSRF checks (a page in the user's browser can otherwise reach the local API); remove the request-controlled `dlopen` path; add session reaping and export bounds. That is roughly a week and honors the "two editions" promise. A real auth/multi-tenancy model is a 1.1 project — it is a product design question (who may connect to which server, how credentials are held, what isolation means), not a bug list.
+
+Fallback if you want it simpler: desktop-only beta, web to 1.1.
+
+### Q2 — What is a "plugin" in 1.0.0-beta?
+
+The **TypeScript contribution registry is real and works** — the 9 first-party extractions ride on it and are covered by the 717 passing tests. What is dead is the **WASM runtime**: a plugin can be installed, granted, and activated, then the instance is dropped, so no plugin code can ever run again. No events, no interceptors, no supervision, no CPU preemption.
+
+**Recommendation: wire a minimum real runtime — persistent instance + epoch ticker + event dispatch + supervisor crash handling. Defer interceptors to 1.1.**
+
+The pieces exist and are unit-tested; this is integration, not new subsystem authoring. Plugins are the differentiator you deliberately kept in M1 scope and `docs/plugin-system.md` publicly commits to "first-class plugins from 1.0.0-beta." Shipping a plugin system in which no plugin code can run after activation would cost more credibility than the delay. Estimate 2–3 weeks; the risk is wasmtime `Store` lifetime and `Send`/`Sync` across Tauri state, which `instance.rs` and `concurrency.rs` were written for but never exercised.
+
+Fallback: ship "activation-only" plugins, document the runtime as 1.1, and **delete or feature-gate the 1,804 dead lines** so the codebase stops asserting a runtime it does not have.
+
+### Q3 — The `runtime.subprocess` escape hatch: keep or delete?
+
+`PLUGIN_ARCHITECTURE.md` declares "no `process` capability ever" and records it as a signed-off decision — twice. The code ships it: a plugin's own manifest self-attests the capability and names an arbitrary native binary in its bundle, which the host spawns unconfined. The documented mitigation (a stricter install-time warning) was never implemented.
+
+**Recommendation: delete it for beta.** It voids the sandbox story that is the plugin system's main safety claim, it is desktop-only so it already breaks the tri-state portability promise, and no first-party plugin needs it. Removal is ~163 lines plus a capability variant and a manifest flag, and it makes the canonical document true again. If a real need appears, §17.7 already prescribes the correct shape: narrow host-mediated interfaces, not shell-out.
+
+---
+
+## 4. Wave plan
+
+Waves 0–2 are unconditional — they hold under every answer to Q1/Q2/Q3. Start them regardless.
+
+### Wave 0 — Preserve and make the signal honest (½ day)
+
+1. `.gitignore` the stray `plugin-grants.sqlite*` artifacts in `plamenix-web`.
+2. **Commit the current state as-is across the 5 dirty repos**, broken tests and all, with both review documents alongside. 2.5 months of work living only in working trees is the largest unmanaged risk in the project and it is unrelated to any code quality question.
+3. Fix the 5 `embedded` sites (`crypt.rs:18`, `smoke.rs:12`, `fbclient-node/src/lib.rs:132` and `:401`, web `App.tsx:414`) and regenerate `generated.ts`.
+4. Re-run everything; record the true green/red baseline in the tracker.
+
+After this, "does it build" becomes a meaningful signal for the first time since May.
+
+### Wave 1 — Data fidelity (3–5 days)
+
+A DB tool that silently changes values is not credible, regardless of what else ships.
+
+- Exact numerics end-to-end: NUMERIC/DECIMAL currently fetched as `f64` in the vendored driver, and `ts-gen` maps `i64` → TS `number`. **Recommend representing both as strings on the wire**, formatted at the edge — the standard approach, lossless, and it removes the 2^53 cliff for BIGINT.
+- Fix the inverted TIME/TIMESTAMP WITH TIME ZONE offset decoding (sign error; small fix, needs tests).
+- Schema type names must carry precision/scale and character length rather than byte length — currently produces wrong DDL exports and makes the inline editor reject valid decimals.
+- Remove the `masterkey` injection from `tabs-store.ts` and make the two failing tests pass.
+
+Vendor patching of `rsfbclient-native` is already established practice here (the SQL_ARRAY patch), so the driver changes fit existing convention.
+
+### Wave 2 — SQL execution correctness (3–4 days)
+
+- `split_statements` needs `SET TERM` and `BEGIN…END` awareness. Today procedures, triggers, and `EXECUTE BLOCK` cannot be run from the editor at all — a headline feature of any Firebird IDE.
+- Unify the two divergent `is_select_like` heuristics and stop injecting `ROWS` into `EXECUTE BLOCK` / `EXECUTE PROCEDURE`.
+- Decide the transaction story. Today every statement auto-commits and a user-typed `COMMIT`/`ROLLBACK` fails. Explicit transaction control is table stakes for a DBA tool; if it must wait, say so in the docs rather than leaving `COMMIT` erroring.
+- Version-gate the `MON$` queries so the dashboard works on FB 2.5 as documented.
+- Fix the 2-of-4 dashboard sections, or delete the tests' expectation and the claim.
+
+### Wave 3 — Plugin trust surface (2–3 days — DECIDED: delete the subprocess hatch)
+
+Delete `subprocess.rs`, the `RuntimeSubprocess` capability variant, the `runtime.requires_subprocess` manifest flag, and the `entry_points.subprocess` handling; drop the escape hatch from `plugin-system.md`, ADR 0003, and `capability-model.md` so the canonical "no process capability ever" statement becomes true again.
+
+Then: signing needs a trust root (today any attacker-generated key reports "Signature verified"); sandbox limits must be host-clamped rather than manifest-chosen; grants must be rejected when they exceed what the manifest requested; `.plx` extraction needs decompressed-size limits.
+
+### Wave 4 — Plugin runtime, full scope including interceptors (4–6 weeks — DECIDED: full runtime)
+
+Q2 was decided as **full runtime including interceptor chains**, larger than the minimum I recommended. Re-scoped in dependency order:
+
+1. **Persistent instances.** Keep the `Store` alive in `InstanceRegistry` instead of dropping it after `activate()`. Load-bearing — everything below depends on it. The hard part is wasmtime `Store` lifetime and `Send`/`Sync` across Tauri managed state and the NAPI boundary; `instance.rs` and `concurrency.rs` were written for exactly this and have never been exercised in production.
+2. **Epoch ticker** spawned by both shells, so the 100ms/5s preemption guarantee actually fires.
+3. **Event dispatch** — call `handle-event` on live instances, and reconcile the shipped bus with the topic grammar, dot-globs, and `schemaVersion` that `plugin-events.md` documents but no bus implements.
+4. **Supervisor on the crash path** — restart policy and the 3/60s crash budget reaching DISABLED, driven by real faults rather than test fixtures.
+5. **In-flight cap** enforced through the real call path.
+6. **Interceptor chains** — the WIT exports for interceptors do not exist yet, so this is new contract work, not wiring. Settle chain ordering and failure semantics before writing code. Most unknowns, least existing scaffolding, and the main schedule risk.
+7. **WIT world enforcement** — recognize declared worlds, refuse unknown ones, link per-world imports, cross-check grants against the world surface. Today only `plugin-minimal` is bound and `validate_world_identifier` is pure syntax, so a `db-reader` plugin fails with a raw linker error instead of the documented clean refusal.
+
+Items 1–5 integrate existing tested code. Items 6–7 are new design work.
+
+### Wave 5 — Web edition (1 week for localhost-only, per Q1)
+
+Localhost binding with explicit refusal to bind externally, Origin/CSRF checks, remove the request-controlled `dlopen`, session reaping with idle timeout, bounded exports, and an actual deployment path (the server serves no static assets today, and production CORS is off, so the SPA is reachable neither same-origin nor cross-origin).
+
+### Wave 6 — Architecture improvements (1 week)
+
+The genuine design wins, as opposed to defect repair:
+
+- **~1,560 lines of shell orchestration are duplicated verbatim between the two `App.tsx` files and have already drifted.** That belongs in `plamenix-ui` as a headless orchestrator hook. This is the single highest-leverage refactor in the codebase and it prevents the drift from compounding.
+- **Transport contract v2**: add cancellation, a host→client push channel, and a typed error shape. Long queries currently lock the tab with no way out, and the missing push channel is part of why plugin events have nowhere to go.
+- Delete `ResultTable`'s second live copy of all five export formats, now that the builtins exist.
+- Make feature availability independent of unrelated component mounts (the SQL Format button never appears in the desktop query workflow because registration is mount-scoped).
+
+### Wave 7 — Docs reconciliation, human-eyes pass, re-review (3–4 days)
+
+- Rewrite the capability grammar, event catalogue, WIT world tiering, and manifest `[contributions.ui]` sections to match shipped reality — most of this is mechanical once Q2/Q3 are decided.
+- **Hand-read `plamenix-ui/src/db/inline-edit.ts`.** It builds the UPDATE/DELETE statements — the one place the product destroys user data — and it contains literal NUL bytes in its sentinel constants, which made it invisible to every grep-based sweep including this review's. Replace the NULs with ` ` escapes and give the bulk-update path tests.
+- Final adversarial re-review before tagging (worth running as a multi-agent pass again — independent skeptics are the point).
+- Then I9.13: tag `1.0.0-beta`.
+
+---
+
+## 5. Sequencing rationale
+
+Waves 1 and 2 come before the plugin work even though plugins are the differentiator, because data corruption and an editor that cannot run a stored procedure undermine the product's core claim, and because they are bounded, high-confidence fixes that need no decisions. Wave 3 precedes Wave 4 so the subprocess deletion lands before anything is built on top of it.
+
+**Rough total with the decisions taken: 9–12 weeks**, putting 1.0.0-beta in the second half of October 2026. Wave 4 dominates — it is 4–6 weeks by itself, and items 6–7 (interceptors, WIT world enforcement) are new design work rather than integration, so they carry most of the schedule risk. If that date is unacceptable, the lever is Wave 4 item 6: deferring interceptor chains to 1.1 removes roughly two weeks and most of the uncertainty, while items 1–5 still deliver a plugin system where plugin code actually runs.
+
+## 6. Process change — otherwise this regrows
+
+Adopt as the tracker's definition of done: **an item is done when a production call path reaches it and a test exercises it through the shell.** The current codebase passes 915 tests while 36% of the plugin host is unreachable; that is precisely what a module-local definition of done produces. Two supporting rules:
+
+- A failing test is never left red as documentation of a known gap. Either fix it or delete the claim.
+- Any comment saying `REMOVE before deploy` is a release blocker by definition, and something should fail the build while one exists.

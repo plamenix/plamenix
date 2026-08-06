@@ -21,13 +21,34 @@ exploration — every line reflects a choice the project has committed to.
 
 ### Plugin system
 
+- [plugin-architecture.md](./plugin-architecture.md) — Full design
+  spec: microkernel + hexagonal ports + capability tiers + lifecycle +
+  contribution points + events + interceptors + supervisor + trust
+  model + edition portability. Read this first.
 - [plugin-system.md](./plugin-system.md) — WASM Component Model + ESM
   React contributions. Why this, not dylib/subprocess/scripting.
+- [tutorial-first-plugin.md](./tutorial-first-plugin.md) — **Start
+  here.** Hands-on walkthrough: scaffold → build → sign → install
+  on either edition using `plamenix-cli`.
+- [plugin-authoring.md](./plugin-authoring.md) — Reference manual.
+  Vite externals + import-map runtime resolution + module shape +
+  manifest + dev loop + verification. Field-by-field detail when you
+  outgrow the tutorial.
 - [contribution-points.md](./contribution-points.md) — Full enumeration
-  of slots plugins fill.
+  of slots plugins fill (the static surface).
+- [plugin-events.md](./plugin-events.md) — Asynchronous event-bus
+  topics plugins subscribe to (`*ed`, fire-and-forget).
+- [plugin-interceptors.md](./plugin-interceptors.md) — Synchronous
+  middleware extension points (`*ing`, may mutate or cancel).
 - [plugin-manifest.md](./plugin-manifest.md) — `manifest.toml` schema.
+- [edition-targeting.md](./edition-targeting.md) — When to pick
+  `targets = ["desktop"]` vs `["web"]` vs both. Decision tree +
+  enforcement + migration notes.
 - [capability-model.md](./capability-model.md) — Permission grammar,
   install-time consent.
+- [bundled-plugins-smoke-checklist.md](./bundled-plugins-smoke-checklist.md) —
+  Pre-tag manual walkthrough for the nine first-party plugins on
+  both editions; screenshot capture slots.
 
 ### Runtime & state
 
@@ -63,6 +84,19 @@ exploration — every line reflects a choice the project has committed to.
   names, no submodules.
 - [release-targets.md](./release-targets.md) — Build matrix per
   platform (Windows MSI, macOS DMG, Linux AppImage / .deb, Docker).
+
+### Reviews
+
+Point-in-time assessments. Unlike the rest of this directory these are
+dated snapshots, not living decisions — read them for what was true on
+the date in the filename.
+
+- [architecture-review-2026-08-06.md](./architecture-review-2026-08-06.md)
+  — Full pre-beta review of all six repos. 13 critical and 36 major
+  findings, each adversarially verified against the code.
+- [remediation-plan-2026-08-06.md](./remediation-plan-2026-08-06.md) —
+  Waves 0–7 to 1.0.0-beta, the measured build/test baseline, and the
+  three scope decisions taken on 2026-08-06.
 
 ### ADRs
 
