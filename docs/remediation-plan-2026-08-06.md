@@ -140,15 +140,22 @@ The original recommendation was "represent NUMERIC and BIGINT as strings on the 
 3. Routing NUMERIC through `Text` anyway is a visible regression: `ResultTable.isNumeric()` keys off `cell.type === 'integer' || 'float'`, so those columns would left-align, sort lexically, and lose the numeric inline editor.
 4. Separately, `ts-gen` blanket-remaps `i64`/`u64`/`i128` to TS `number`, justified by a comment claiming every Plamenix integer fits in 2^53. That holds for durations and row counts but **not for `ColumnValue::Integer`, which carries arbitrary BIGINT column values**, nor for generator values.
 
-**Proposed design — needs sign-off because it expands the vendoring surface:**
+**Design, revised after upstream research on 2026-08-06.** An earlier draft proposed vendoring `rsfbclient-core` to add a `SqlType::Decimal` variant. **That is unnecessary — do not do it.** Research findings:
 
-- Vendor `rsfbclient-core` alongside `rsfbclient-native` and add `SqlType::Decimal { unscaled: i64, scale: i8 }`. The repo already vendors one upstream crate through `[patch.crates-io]` with a documented rationale, so this follows existing practice, but a second vendored crate is an architectural commitment and this project records those as ADRs.
-- Stop the `SQL_DOUBLE` coercion; keep INT64 plus the scale and render exactly via the existing helper.
-- Split `ColumnValue` into `Integer(String)` (exact, arbitrary BIGINT), `Decimal(String)` (exact fixed-point), and `Float(f64)` (genuinely approximate FLOAT/DOUBLE — correct as-is).
-- Narrow the `ts-gen` remap so only the genuinely bounded types become `number`, and correct the comment that asserts the false premise.
-- Update the grid's numeric predicate, sorting, filters, the five export formats, and `inline-edit.ts` to handle the exact variants.
+1. The `SQL_DOUBLE` coercion is **upstream rsfbclient behaviour, not a Plamenix defect**. Verified against upstream master, and it is present in *both* backends: `rsfbclient-native/src/row.rs` and `rsfbclient-rust/src/xsqlda.rs`, the latter commenting "Is actually a decimal or numeric value, so coerce as double". So it affects `ConnectMode::PureRust` and `ConnectMode::Native` alike.
+2. **rsfbclient 0.27.0 shipped 2026-07-03**, newer than the pinned 0.26, but contains only a Windows CI fix and a pure-Rust batch-fetch optimisation. Upgrading does not help. No upstream issue exists for the precision loss; the maintainer is active and merges community PRs.
+3. **`rsfbclient_core::Column` already exposes a public `raw_type: u32`** carrying the Firebird type code captured *before* coercion — both backends populate it. `plamenix-db` currently discards it, keeping only `name`. That field is the discriminator: an integer-family `raw_type` arriving as `Floating` can only be a scaled NUMERIC/DECIMAL. No vendored type is needed to tell them apart.
 
-The alternative — keep `f64` and accept silent corruption above 15 significant digits — is not viable for a DBA tool: NUMERIC(18,4) is the standard money type in Firebird schemas.
+**The problem splits into two halves with very different costs. Do them in this order.**
+
+**Half 1 — BIGINT. No vendoring, entirely Plamenix's own types.** `ColumnValue::Integer(i64)` reaches TS as `number` because of the blanket `ts-gen` remap. Demonstrated: Firebird's max BIGINT `9223372036854775807` arrives in the UI as `9223372036854776000`, and `9007199254740993` silently becomes `…992`. This hits BIGINT primary keys, generator values, and MON$ counters — common columns, unambiguous corruption. Fix: carry exact integers as strings on the wire, narrow the remap to the genuinely bounded types, correct the comment asserting the false premise, and update the grid, sorting, filters, exports, and `inline-edit.ts`. **This is the higher-severity half and it is unblocked.**
+
+**Half 2 — NUMERIC/DECIMAL. Needs a driver patch.** Add `ColumnValue::Decimal(String)`, discriminate on `raw_type`, and stop the coercion in the already-vendored native backend, keeping INT64 plus the scale and rendering through the `apply_scale` helper that file already uses for ARRAY elements. For the pure-Rust backend, which is **not** vendored and is the default in `DEFAULT_FORM`, choose one:
+
+- **Upstream it (recommended).** File the issue and a PR against `fernandobatels/rsfbclient`. The project is funded by the Firebird Foundation, the maintainer merges community contributions, and this removes vendoring debt rather than adding it. Vendor temporarily only if the beta cannot wait for a release.
+- Vendor `rsfbclient-rust` as a second patched crate. Still does **not** require vendoring `rsfbclient-core`.
+
+**Severity nuance, so this gets prioritised honestly:** Rust and JS both print floats with shortest-round-trip formatting, so a small value like `12.34` still *displays* as `12.34`. The NUMERIC damage concentrates in values past ~15–16 significant digits — NUMERIC(18,4) being the standard Firebird money type — plus arithmetic and re-serialisation into exports. The BIGINT half, by contrast, corrupts ordinary id columns outright, which is why it goes first.
 
 ### Wave 2 — SQL execution correctness (3–4 days)
 
