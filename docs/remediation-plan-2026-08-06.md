@@ -179,6 +179,12 @@ Original description follows.
 - Version-gate the `MON$` queries so the dashboard works on FB 2.5 as documented.
 - Fix the 2-of-4 dashboard sections, or delete the tests' expectation and the claim.
 
+### Wave 3 — Plugin trust surface — COMPLETE 2026-08-07
+
+Subprocess hatch removed; manifest resource limits clamped to host ceilings; grants refused unless the manifest declared the capability (both editions); `.plx` extraction bounded by entry count, per-entry and total size, with the copy capped rather than trusting the declared header; `VerificationOutcome::Valid` renamed `SelfSigned` and the install dialog's green "Signature verified" replaced with "Signed — publisher not verified". Marketplace and URL install were cut from scope entirely on 2026-08-07, which removed the trust-root work this wave originally carried.
+
+Original description follows.
+
 ### Wave 3 — Plugin trust surface (2–3 days — DECIDED: delete the subprocess hatch)
 
 Delete `subprocess.rs`, the `RuntimeSubprocess` capability variant, the `runtime.requires_subprocess` manifest flag, and the `entry_points.subprocess` handling; drop the escape hatch from `plugin-system.md`, ADR 0003, and `capability-model.md` so the canonical "no process capability ever" statement becomes true again.
