@@ -121,16 +121,34 @@ Waves 0–2 are unconditional — they hold under every answer to Q1/Q2/Q3. Star
 
 After this, "does it build" becomes a meaningful signal for the first time since May.
 
-### Wave 1 — Data fidelity (3–5 days)
+### Wave 1 — Data fidelity (3–5 days) — PARTIALLY LANDED 2026-08-06
 
 A DB tool that silently changes values is not credible, regardless of what else ships.
 
-- Exact numerics end-to-end: NUMERIC/DECIMAL currently fetched as `f64` in the vendored driver, and `ts-gen` maps `i64` → TS `number`. **Recommend representing both as strings on the wire**, formatted at the edge — the standard approach, lossless, and it removes the 2^53 cliff for BIGINT.
-- Fix the inverted TIME/TIMESTAMP WITH TIME ZONE offset decoding (sign error; small fix, needs tests).
-- Schema type names must carry precision/scale and character length rather than byte length — currently produces wrong DDL exports and makes the inline editor reject valid decimals.
-- Remove the `masterkey` injection from `tabs-store.ts` and make the two failing tests pass.
+**Done:**
 
-Vendor patching of `rsfbclient-native` is already established practice here (the SQL_ARRAY patch), so the driver changes fit existing convention.
+- ✅ Inverted TIME/TIMESTAMP WITH TIME ZONE offset decoding. Firebird encodes an offset zone as displacement + 1440, so 1440 is UTC; the code treated 0–1439 as east and 1440–2879 as west, inverting every offset (a `+02:00` value read as `-02:00`). Fixed with tests. The vendored crate could not host tests at all — it is patched in, not a workspace member — so it is now a standalone workspace and `just test` depends on a `test-vendor` recipe.
+- ✅ `masterkey` credential injection in `tabs-store.ts`, including clearing secrets on rehydrate so entries already in localStorage are not trusted.
+- ✅ Dashboard sections reconciled with the shipped Welcome surface (the tests, not the code, were wrong).
+
+**Still open — exact numerics.** Investigated 2026-08-06; **the approach in this plan needs revision and a decision.**
+
+The original recommendation was "represent NUMERIC and BIGINT as strings on the wire." Investigation shows that is not sufficient on its own:
+
+1. The vendored driver coerces NUMERIC/DECIMAL to `SQL_DOUBLE` at describe time (`row.rs`, the `sqlscale != 0` branch), so precision is lost inside the driver, before any wire type applies. It already has an exact `apply_scale(i64, i8) -> String` helper used for ARRAY elements, and already surfaces FB4 types (INT128, DECFLOAT, TZ) as `SqlType::Text` — so an exact path exists and has precedent.
+2. But `SqlType` is defined in **`rsfbclient-core`, which is not vendored** — only `rsfbclient-native` is. Its variants are Text / Integer(i64) / Floating(f64) / Timestamp / Binary / Boolean / Null. There is no exact-decimal variant, so the driver's only lossless channel today is `Text`, and `plamenix-db` then cannot tell a NUMERIC from a VARCHAR.
+3. Routing NUMERIC through `Text` anyway is a visible regression: `ResultTable.isNumeric()` keys off `cell.type === 'integer' || 'float'`, so those columns would left-align, sort lexically, and lose the numeric inline editor.
+4. Separately, `ts-gen` blanket-remaps `i64`/`u64`/`i128` to TS `number`, justified by a comment claiming every Plamenix integer fits in 2^53. That holds for durations and row counts but **not for `ColumnValue::Integer`, which carries arbitrary BIGINT column values**, nor for generator values.
+
+**Proposed design — needs sign-off because it expands the vendoring surface:**
+
+- Vendor `rsfbclient-core` alongside `rsfbclient-native` and add `SqlType::Decimal { unscaled: i64, scale: i8 }`. The repo already vendors one upstream crate through `[patch.crates-io]` with a documented rationale, so this follows existing practice, but a second vendored crate is an architectural commitment and this project records those as ADRs.
+- Stop the `SQL_DOUBLE` coercion; keep INT64 plus the scale and render exactly via the existing helper.
+- Split `ColumnValue` into `Integer(String)` (exact, arbitrary BIGINT), `Decimal(String)` (exact fixed-point), and `Float(f64)` (genuinely approximate FLOAT/DOUBLE — correct as-is).
+- Narrow the `ts-gen` remap so only the genuinely bounded types become `number`, and correct the comment that asserts the false premise.
+- Update the grid's numeric predicate, sorting, filters, the five export formats, and `inline-edit.ts` to handle the exact variants.
+
+The alternative — keep `f64` and accept silent corruption above 15 significant digits — is not viable for a DBA tool: NUMERIC(18,4) is the standard money type in Firebird schemas.
 
 ### Wave 2 — SQL execution correctness (3–4 days)
 
