@@ -5,7 +5,22 @@ Written 2026-08-06 after independently re-establishing build/test truth on this 
 
 ---
 
-## 1. Verified baseline (measured, not claimed)
+## 0. Status — Wave 0 complete (2026-08-06)
+
+All five dirty repos are committed on branch `feat/plugin-suite`
+(`docs/plugin-suite` in the meta repo), and every target now compiles.
+
+| Target | Before | After Wave 0 |
+|---|---|---|
+| plamenix-core | 198 pass, 2 test targets unbuildable | **225 pass, 0 fail** |
+| plamenix-desktop | tsc + cargo clean | unchanged |
+| plamenix-ui | 717 pass, 4 fail | unchanged (the 4 are Wave 1/2 work) |
+| plamenix-web | **does not build** | **all 4 packages typecheck; server 57/57** |
+
+Branches rather than `main`, because `docs/git-workflow.md` requires main
+to stay green and the tree did not build. Merge when the suite is green.
+
+## 1. Verified baseline as found (measured, not claimed)
 
 | Target | Compiles | Tests |
 |---|---|---|
@@ -140,7 +155,7 @@ Q2 was decided as **full runtime including interceptor chains**, larger than the
 3. **Event dispatch** — call `handle-event` on live instances, and reconcile the shipped bus with the topic grammar, dot-globs, and `schemaVersion` that `plugin-events.md` documents but no bus implements.
 4. **Supervisor on the crash path** — restart policy and the 3/60s crash budget reaching DISABLED, driven by real faults rather than test fixtures.
 5. **In-flight cap** enforced through the real call path.
-6. **Interceptor chains** — the WIT exports for interceptors do not exist yet, so this is new contract work, not wiring. Settle chain ordering and failure semantics before writing code. Most unknowns, least existing scaffolding, and the main schedule risk.
+6. **Interceptor chains** — narrower than first estimated. `plamenix-ui/src/interceptors/` already ships a tested TypeScript framework (`chain.ts` plus eight chains: connection-opening, query-executing, cell-committing, row-inserting, row-deleting, editor-saving, export-starting, schema-action-applying), so first-party code can already intercept. The gap is the same shape as the event gap: **no WIT exports, so WASM plugins cannot participate.** Scope is defining the interceptor exports in the WIT contract and bridging them to the existing TS chain, not designing the chain semantics from scratch. Roughly a week rather than two.
 7. **WIT world enforcement** — recognize declared worlds, refuse unknown ones, link per-world imports, cross-check grants against the world surface. Today only `plugin-minimal` is bound and `validate_world_identifier` is pure syntax, so a `db-reader` plugin fails with a raw linker error instead of the documented clean refusal.
 
 Items 1–5 integrate existing tested code. Items 6–7 are new design work.
@@ -171,7 +186,9 @@ The genuine design wins, as opposed to defect repair:
 
 Waves 1 and 2 come before the plugin work even though plugins are the differentiator, because data corruption and an editor that cannot run a stored procedure undermine the product's core claim, and because they are bounded, high-confidence fixes that need no decisions. Wave 3 precedes Wave 4 so the subprocess deletion lands before anything is built on top of it.
 
-**Rough total with the decisions taken: 9–12 weeks**, putting 1.0.0-beta in the second half of October 2026. Wave 4 dominates — it is 4–6 weeks by itself, and items 6–7 (interceptors, WIT world enforcement) are new design work rather than integration, so they carry most of the schedule risk. If that date is unacceptable, the lever is Wave 4 item 6: deferring interceptor chains to 1.1 removes roughly two weeks and most of the uncertainty, while items 1–5 still deliver a plugin system where plugin code actually runs.
+**Rough total with the decisions taken: 8–11 weeks**, putting 1.0.0-beta in October 2026. Wave 4 dominates at 4–5 weeks. The schedule risk concentrates in Wave 4 item 1 (persistent instances — wasmtime `Store` lifetime across the Tauri and NAPI boundaries, never yet exercised) rather than in interceptors, which turned out to be mostly bridging work over an existing tested TypeScript framework.
+
+If the date needs to come down, the honest levers are deferring Wave 4 items 6–7 to 1.1, or dropping the web edition to desktop-only. Cutting Waves 1–2 is not a lever — they are what makes the tool trustworthy.
 
 ## 6. Process change — otherwise this regrows
 
