@@ -1,0 +1,49 @@
+# Firebird 2.5 — the floor of the range Plamenix claims to support
+# (FB 2.5–5.0). Runs alongside dev/firebird5 rather than replacing it:
+# the version-gated code paths (MON$ columns that only exist from 3.0,
+# DECFLOAT/INT128/TIME ZONE from 4.0) can only be checked by pointing the
+# same build at both engines, so both listen at once.
+#
+#   FB 5.0 → 127.0.0.1:3050   (dev/firebird5)
+#   FB 2.5 → 127.0.0.1:3051   (here)
+#
+#   docker compose up -d && ./seed.sh
+#
+# The schema is not seeded by the entrypoint. Unlike firebirdsql/firebird,
+# this image has no /docker-entrypoint-initdb.d hook — it creates the
+# database and stops there — so `seed.sh` applies the shared schema after
+# the container reports healthy.
+services:
+  firebird25:
+    image: jacobalberty/firebird:2.5-ss
+    container_name: plamenix-firebird25
+    # The image publishes linux/amd64 only, so Apple Silicon runs it
+    # under emulation. Startup is slower than the native FB 5 container;
+    # that is expected, not a hang.
+    platform: linux/amd64
+    environment:
+      # This image's name for the SYSDBA password. Kept identical to the
+      # FB 5 container so one set of credentials covers both.
+      ISC_PASSWORD: masterkey
+      # Creates /firebird/data/test.fdb on first start when absent.
+      # DBPATH is baked into the image as /firebird/data.
+      FIREBIRD_DATABASE: test.fdb
+    ports:
+      # 3051 on the host: FB 5 already owns 3050 and both run together.
+      - "3051:3050"
+    volumes:
+      # The image declares /firebird as its volume; the database lands in
+      # /firebird/data per the image's DBPATH.
+      - ./data:/firebird/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/usr/local/firebird/bin/fbsvcmgr localhost:service_mgr user SYSDBA password masterkey info_server_version || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      # Emulated startup is slow; give it more room than the FB 5 service.
+      retries: 12
+      start_period: 60s

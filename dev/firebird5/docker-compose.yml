@@ -1,0 +1,38 @@
+services:
+  firebird5:
+    image: firebirdsql/firebird:5
+    container_name: plamenix-firebird5
+    environment:
+      # SYSDBA password the user explicitly asked for. The image
+      # reads this as the seed password for the default SYSDBA
+      # account.
+      FIREBIRD_ROOT_PASSWORD: masterkey
+      # Triggers entrypoint's create_db step: creates test.fdb at
+      # /var/lib/firebird/data/test.fdb (FIREBIRD_DATA defaults to
+      # that dir) AND then runs every init script in
+      # /docker-entrypoint-initdb.d/ against the new db. Init runs
+      # only on first start; on later restarts the file exists +
+      # entrypoint skips both create + init.
+      FIREBIRD_DATABASE: test.fdb
+      FIREBIRD_DATABASE_DEFAULT_CHARSET: UTF8
+      # Use legacy auth (Srp + Legacy_Auth) so old SYSDBA/masterkey
+      # clients work without WireCrypt = Required noise.
+      FIREBIRD_USE_LEGACY_AUTH: "true"
+    ports:
+      - "3050:3050"
+    volumes:
+      # Host-side data dir → container's /var/lib/firebird/data so
+      # the test.fdb survives container restarts AND ends up at the
+      # exact path the user asked for.
+      - ./data:/var/lib/firebird/data
+      # Init scripts run by the image's entrypoint after Firebird
+      # starts. `.sh` files run with bash; `.sql` files pipe through
+      # isql.
+      - ./init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/firebird/bin/fbsvcmgr localhost:service_mgr user SYSDBA password masterkey info_server_version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
