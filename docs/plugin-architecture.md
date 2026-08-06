@@ -2,7 +2,7 @@
 
 **Status**: Adopted 2026-05-27. Full plugin suite scoped to M1 per [`../MILESTONES.md`](../MILESTONES.md). Live implementation tracker at `../../PLUGIN_TRACKER.md` (workspace-level).
 
-**Canonical location**: this file (`plamenix/docs/plugin-architecture.md`). A mirror exists at workspace-level `../../PLUGIN_ARCHITECTURE.md` for cross-repo sessions and tools that read outside any single sibling repo; edits must propagate to both.
+**Canonical location**: this file (`plamenix/docs/plugin-architecture.md`). The workspace-level `../../PLUGIN_ARCHITECTURE.md` is a pointer to it, not a copy — the workspace root is untracked, and the mirror it used to hold had already drifted.
 
 Synthesized from research on VSCode, JetBrains, Theia, Zed, Atom (failure), Obsidian (anti-pattern), Eclipse OSGi, Erlang/OTP, Hexagonal Architecture, Microkernel pattern (POSA), Event-Driven Architecture (Fowler), Interceptor pattern, Object Capability Model, WASM Component Model, WASI Preview 2, Manifest V3, Deno permissions.
 
@@ -231,7 +231,7 @@ net = ["fetch.https:api.example.com:443"]
 
 Required = batch consent on install (single screen). Optional = first-use prompt with three buttons (Allow once / Allow always / Deny).
 
-**Purpose strings (Info.plist analog)** — every capability declaration must include a one-line `purpose` field. Empty → marketplace submission rejected.
+**Purpose strings (Info.plist analog)** — every capability declaration should carry a one-line `purpose` field. Optional: `plamenix-cli validate` warns on a missing one, and the install dialog shows the capability without a rationale. The capability itself is what the host enforces.
 
 ```toml
 [[permissions.optional.fs]]
@@ -436,7 +436,7 @@ Three touchpoints. No fourth — adding more clicks erodes trust.
 ### First-use prompt (optional capabilities only)
 - Triggered when plugin first calls a method requiring optional capability.
 - Three buttons: **Allow once** / **Allow always** / **Deny**.
-- Rationale text = manifest purpose string. Empty → marketplace rejected.
+- Rationale text = manifest purpose string. Absent → the capability is shown without one.
 - Cooldown: a denied capability stays denied until user visits Permissions panel. No re-prompt spam.
 
 ### Permissions panel
@@ -499,21 +499,53 @@ Lives in `plamenix-plugin-host/src/supervisor.rs` (new). Responsibilities:
 
 ## 13. Trust model
 
-| Distribution path | Signing | Review | UX |
-|---|---|---|---|
-| Marketplace (Ascent Systèmes-curated) | Required: author signs → marketplace re-signs after automated checks | Static analysis (capability surface), manual review for first publication | Green checkmark badge |
-| Marketplace (community publisher) | Author signs only | Static analysis | Blue badge ("community-signed") |
-| Sideload from disk (`.plx` file) | Optional | None | Red banner: "Unsigned plugin — only install from authors you trust" |
-| Sideload from URL | TLS-only, signature recommended | None | Same red banner |
-| Built-in plugins | Implicit (shipped in host binary) | Internal review | No badge (treated as core) |
+Plamenix installs plugins from exactly two places. There is no
+marketplace, no registry, and no installing from a URL.
 
-**Signing format**: `.plx` bundle includes `signature.bin` covering all other contents. Public key in marketplace registry; pinned for offline verification.
+| Distribution path | Signing | UX |
+|---|---|---|
+| Built-in | Implicit — compiled into the host binary | No badge; treated as core |
+| Sideload from a local `.plx` file | Optional, integrity only | Capability list, plus the signing key when one is present |
 
-**No remote code loading**: like MV3. The `.plx`'s wasm + ui.mjs are the only executable surface. Plugin fetching JS at runtime → host refuses to evaluate (`script-src 'self'` CSP).
+**Why so narrow.** A curated marketplace is the only thing that can turn
+a signature into a statement about *who* wrote a plugin. Without one, a
+signature proves the archive was not altered after it was signed and
+nothing more — the key travels inside the bundle, so anyone can produce
+a validly signed plugin. Shipping a "verified" badge on that basis would
+tell the user something the system cannot know.
 
-**Reproducible builds** for marketplace plugins: source → wasm hash match. Verifiable third-party audit pathway. Optional but encouraged.
+So the trust decision lives where the user can actually make it: the
+file picker. They chose the file; the host sandboxes it regardless. This
+is how VS Code `.vsix`, JetBrains local plugin installs and unsigned
+Firefox XPIs all work before an ecosystem exists.
 
-**Update consent**: if a plugin update adds a *new required* capability, user must re-consent. Optional capabilities reset to "not granted" on major-version bump.
+Installing from a URL was removed rather than left disabled. It is the
+one path where the user does *not* see what they are getting before it
+arrives, and it needs exactly the curation that does not exist. Fetching
+a plugin is therefore the user's job, using a browser, where the usual
+signals — the domain, the TLS padlock, the project's own site — are
+visible and familiar.
+
+**What signing does mean.** A `.plx` may carry `signature.bin` covering
+its other contents. Verification answers one question — *do these bytes
+match this key?* — and the API says so: the outcome distinguishes an
+intact archive from a tampered one, and never claims the publisher is
+who they say they are. The signing key is surfaced to the user, not
+interpreted for them.
+
+**No remote code loading**: like MV3. The `.plx`'s wasm + ui.mjs are the
+only executable surface. A plugin fetching JS at runtime → host refuses
+to evaluate (`script-src 'self'` CSP).
+
+**Update consent**: if a plugin update adds a *new required* capability,
+the user must re-consent. Optional capabilities reset to "not granted"
+on a major-version bump.
+
+**What a registry would change, if one is ever built.** Re-signing by a
+curator is what makes a badge meaningful, so trust roots, pinning and
+publisher identity belong to that work — not to this beta. Nothing here
+forecloses it: the signature format already covers whole-archive
+integrity, which is what a curator would counter-sign.
 
 ---
 
@@ -574,7 +606,7 @@ Plugin authors write once, target both editions by default. Per-edition plugins 
 10. **Plugin discovery requiring plugin code** — manifest alone must be enough to render menus / palette entries.
 11. **Eager activation as default** — every plugin lazy-activates on its declared triggers.
 12. **`process` capability ever** — no shell-out escape hatch. First-party companion binaries handle this with narrow host-mediated interfaces.
-13. **TOFU after marketplace install** — re-prompt for new required capabilities on updates.
+13. **Re-prompt on update** — a new required capability needs fresh consent, however the plugin was installed.
 14. **Constructor side-effects in plugin classes** — IntelliJ rule. Plugin construction is cheap and deterministic. Work in `activate()`.
 15. **Single namespace for first-party + third-party contributions** — IntelliJ separates `com.intellij.*` from plugin-defined. Plamenix uses `plamenix:*` vs `<plugin-id>:*`.
 
@@ -687,7 +719,7 @@ Tight. Three load-bearing items (I1 web host, I2 React SDK, I6 dynamic surface) 
 
 ### Deferred beyond M1 (explicitly NOT in scope, kept for 1.x roadmap)
 
-- Marketplace submission flow + automated capability audit
+- Automated capability audit for bundles the user is about to install
 - Reproducible builds enforcement
 - Community SDKs (Go, TypeScript) — per ADR 0010, Rust-only for 1.0.x
 - Multi-tenant per-tenant plugin storage on web (single-machine M1 assumption)
@@ -698,18 +730,18 @@ Tight. Three load-bearing items (I1 web host, I2 React SDK, I6 dynamic surface) 
 
 1. **Single host crate vs split per edition?** Recommend: `plamenix-plugin-host` (Rust core, shared) + `plamenix-plugin-host-node` (napi wrapper). Desktop links the core directly; web links via napi.
 2. **WIT world granularity** — 4 tiers (above) or finer-grained? Recommend 4; more is over-engineered for 1.0.x.
-3. **Signing format** — cosign-compatible? Author/publisher dual? Recommend two-signature like JetBrains for marketplace.
-4. **Reproducible builds** — mandatory for marketplace or optional? Recommend optional for 1.0.0-beta, mandatory in 1.x.
+3. **Signing format** — *deferred 2026-08-07*: dual author/publisher signing only becomes meaningful with a curator to be the second signer. Until then a single author signature covering the archive is all that can be verified. Revisit alongside any registry work.
+4. **Reproducible builds** — *deferred 2026-08-07*: an audit pathway worth having, but it needs a published source-to-artefact mapping to check against. Revisit alongside any registry work.
 5. **Plugin storage scoping on web** — per-tenant or shared? Recommend shared in M1 single-machine assumption; per-tenant becomes a 1.x feature when multi-tenant lands.
 6. **Theme contribution** — runtime API or pure-static? Recommend pure-static (CSS variables in manifest). No plugin code runs to apply a theme.
-7. **`subprocess` capability** — keep as escape hatch for first-party plugins only, or remove entirely? Recommend remove entirely; first-party companion binaries are a separate distribution channel.
+7. **`subprocess` capability** — *resolved 2026-08-07*: removed entirely. First-party companion binaries are a separate distribution channel.
 
 ---
 
 ## 18. What's deliberately NOT in this design
 
 - **Multi-language SDKs** (Go, TypeScript) — per ADR 0010, Rust only for 1.0.x.
-- **Marketplace UI** — out of scope for 1.0.0-beta. Sideload + URL install only.
+- **Marketplace and registry** — not built, and not planned for 1.0.0-beta. Local `.plx` sideload only; URL install was removed on 2026-08-07 (see §13).
 - **Plugin chat / agent integration (MCP)** — defer to 1.x; align with whatever MCP-style emerges.
 - **Visual plugin builder** — never (per Atom failure mode lessons).
 - **Hot-swap of host SPI** — host SPI changes are SemVer-major; old plugins are refused, not patched.

@@ -148,7 +148,7 @@ purpose = "Block destructive SQL against prod connections"
 The host enforces:
 - `extension_point` must be one of the known points (typo refused at install).
 - `priority` is an integer in `[0, 1000]`. Reserve `[0, 99]` for first-party built-ins.
-- `purpose` non-empty for marketplace plugins; warning-only for sideload.
+- `purpose` is optional; `plamenix-cli validate` warns when it is missing rather than rejecting, since the capability is what the host enforces.
 
 ## Capability gates
 

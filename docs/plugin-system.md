@@ -21,7 +21,7 @@ walkthrough lives in [tutorial-first-plugin.md](./tutorial-first-plugin.md).
 | Supervisor + crash budget + epoch interruption + resource limits | Shipped (I8.1-I8.9). |
 | Nine first-party bundled plugins | Shipped (I4.1-I4.9). Cross-cutting registrar smoke at `plamenix-ui/src/db/builtins/bundled-plugins-smoke.test.tsx`; manual screenshot checklist at [bundled-plugins-smoke-checklist.md](./bundled-plugins-smoke-checklist.md). |
 | Multi-language plugin SDKs (Go / TS / Python) | **Not in M1.** Rust-only per ADR 0010. |
-| Marketplace UI | **Not in M1.** Sideload (file picker) + URL install only. |
+| Marketplace / registry | **Not built, not planned for 1.0.0-beta.** Local `.plx` sideload via the file picker is the only install path; URL install was removed on 2026-08-07. See the trust model in [plugin-architecture.md](./plugin-architecture.md). |
 
 ## Two layers, one bundle
 
