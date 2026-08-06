@@ -161,7 +161,13 @@ The original recommendation was "represent NUMERIC and BIGINT as strings on the 
 
 **Severity nuance, so this gets prioritised honestly:** Rust and JS both print floats with shortest-round-trip formatting, so a small value like `12.34` still *displays* as `12.34`. The NUMERIC damage concentrates in values past ~15–16 significant digits — NUMERIC(18,4) being the standard Firebird money type — plus arithmetic and re-serialisation into exports. The BIGINT half, by contrast, corrupts ordinary id columns outright, which is why it goes first.
 
-### Wave 2 — SQL execution correctness (3–4 days)
+### Wave 2 — SQL execution correctness (3–4 days) — IN PROGRESS
+
+**Done 2026-08-06:** the statement splitter now honours `SET TERM` and BEGIN/END nesting, so procedures, triggers and `EXECUTE BLOCK` run from the editor; the conflated SELECT predicate is split into `accepts_row_limit` (SELECT/WITH — the `ROWS` grammar) and a three-way `statement_shape` (Cursor / OutputParams / NoResultSet) shared by the driver and both shells. `EXECUTE PROCEDURE` goes through `execute_returnable` because it returns output parameters with no cursor. Verified end to end against the Firebird 5.0.4 container in `crates/plamenix-db/tests/procedural_sql.rs`.
+
+**Still open:** the transaction lifecycle (decided: real manual mode alongside autocommit) and the FB 2.5 MON$ version gating — the 2.5 container now exists to verify it.
+
+Original description follows.
 
 - `split_statements` needs `SET TERM` and `BEGIN…END` awareness. Today procedures, triggers, and `EXECUTE BLOCK` cannot be run from the editor at all — a headline feature of any Firebird IDE.
 - Unify the two divergent `is_select_like` heuristics and stop injecting `ROWS` into `EXECUTE BLOCK` / `EXECUTE PROCEDURE`.
