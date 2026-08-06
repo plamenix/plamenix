@@ -85,6 +85,12 @@ exploration — every line reflects a choice the project has committed to.
 - [release-targets.md](./release-targets.md) — Build matrix per
   platform (Windows MSI, macOS DMG, Linux AppImage / .deb, Docker).
 
+### Upstream
+
+- [upstream-rsfbclient-numeric.md](./upstream-rsfbclient-numeric.md) —
+  Drafted, unfiled report of the NUMERIC/DECIMAL precision loss that
+  both vendored `rsfbclient` patches work around.
+
 ### Reviews
 
 Point-in-time assessments. Unlike the rest of this directory these are
