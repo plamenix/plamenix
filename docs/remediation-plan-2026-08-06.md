@@ -165,7 +165,9 @@ The original recommendation was "represent NUMERIC and BIGINT as strings on the 
 
 **Done 2026-08-06:** the statement splitter now honours `SET TERM` and BEGIN/END nesting, so procedures, triggers and `EXECUTE BLOCK` run from the editor; the conflated SELECT predicate is split into `accepts_row_limit` (SELECT/WITH — the `ROWS` grammar) and a three-way `statement_shape` (Cursor / OutputParams / NoResultSet) shared by the driver and both shells. `EXECUTE PROCEDURE` goes through `execute_returnable` because it returns output parameters with no cursor. Verified end to end against the Firebird 5.0.4 container in `crates/plamenix-db/tests/procedural_sql.rs`.
 
-**Still open:** the transaction lifecycle (decided: real manual mode alongside autocommit) and the FB 2.5 MON$ version gating — the 2.5 container now exists to verify it.
+**Transactions done 2026-08-06.** Manual commit alongside autocommit, end to end. Two attachments per session: `work` for the user's statements, and a read-only read-committed `meta` for Plamenix's own schema/dashboard/ping reads, so background chatter never joins the user's transaction and browsing holds nothing open. Isolation (read-committed or snapshot) and lock resolution (`WAIT` with optional timeout, or `NO WAIT`) are exposed; `consistency` is omitted deliberately, since it takes table-level locks. Savepoints are out by decision — additive later, no rework forced. Verified on Firebird 5.0.4 **and** 2.5.9.
+
+**Still open:** the FB 2.5 MON$ version gating — the 2.5 container now exists and reproduces the failure (`MON$OWNER` and `MON$CRYPT_STATE` are unknown columns there).
 
 Original description follows.
 
