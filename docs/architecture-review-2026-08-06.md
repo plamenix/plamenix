@@ -875,7 +875,7 @@ The one place the product destroys user data was read by nobody in full. perform
 
 /Users/zlatan/Projects/personal/firebird/plamenix-ui/src/db/inline-edit.ts embeds literal NUL bytes in its sentinel constants (od at the NULL_SENTINEL/DEFAULT_SENTINEL lines shows `' \0 _ _ p l a m e n i x _ n u l l _ _'`; `file` classifies the source as 'data'). grep and ripgrep treat the file as binary and return nothing: I verified three separate greps for UPDATE/WHERE/export across it silently produced zero output while Read shows the content. Every dimension's coverage notes lean on tree-wide greps as verification ('greps confirmed no @tauri-apps...', 'cross-checked by grep: no production callers...'); this file dropped out of all of them, which is plausibly why the write-back surface (gap 1) went unreviewed. A byte-level scan confirms it is the only TS file in ui/desktop/web with this property — the blind spot is singular, but it landed on the worst possible file.
 
-**Suggested action.** Replace the literal NUL bytes with the ' ' escape sequence (behavior-identical, restores text-tool compatibility), then re-run any grep-derived verification claims that spanned plamenix-ui/src/db. Add a check that no source file contains raw control bytes.
+**Suggested action.** Replace the literal NUL bytes with the '\0' escape sequence (behavior-identical, restores text-tool compatibility), then re-run any grep-derived verification claims that spanned plamenix-ui/src/db. Add a check that no source file contains raw control bytes.
 
 ### No execution anywhere: build health of the front-ends was never established, and the web client fails typecheck today
 

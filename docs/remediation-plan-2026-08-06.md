@@ -230,7 +230,7 @@ The genuine design wins, as opposed to defect repair:
 ### Wave 7 — Docs reconciliation, human-eyes pass, re-review (3–4 days)
 
 - Rewrite the capability grammar, event catalogue, WIT world tiering, and manifest `[contributions.ui]` sections to match shipped reality — most of this is mechanical once Q2/Q3 are decided.
-- **Hand-read `plamenix-ui/src/db/inline-edit.ts`.** It builds the UPDATE/DELETE statements — the one place the product destroys user data — and it contains literal NUL bytes in its sentinel constants, which made it invisible to every grep-based sweep including this review's. Replace the NULs with `\0` escapes and give the bulk-update path tests.
+- **Hand-read `plamenix-ui/src/db/inline-edit.ts`.** It builds the UPDATE/DELETE statements — the one place the product destroys user data. The NUL half of this item is done: `e54cd77` replaced the literal NUL sentinels with `\u0000` escapes, and a sweep of all six repos now finds no source file with a NUL byte in it. What remains is coverage. `inline-edit.test.ts` has eleven tests and not one of them touches `buildBulkUpdateSql` or `buildBulkDeleteSql`, which are the multi-row destructive paths.
 - Final adversarial re-review before tagging (worth running as a multi-agent pass again — independent skeptics are the point).
 - Then I9.13: tag `1.0.0-beta`.
 
