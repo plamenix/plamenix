@@ -155,6 +155,26 @@ Cross-edition activator coverage already in
 | Desktop | Build the bundle: `plamenix-cli build` in the example dir. Install via the install dialog (file picker → `.plx`). Run a query returning a JSON-shaped VARCHAR column. | The cell renders as a `<pre>` block with pretty-printed JSON (2-space indent). Non-JSON VARCHAR cells fall through to the default text render. | `screenshots/bundled-plugins/json-cell-renderer-desktop.png` |
 | Web | Build once; install via `POST /api/plugins/install` (admin panel). Same query. | Same `<pre>` render; same fallback behaviour. | `screenshots/bundled-plugins/json-cell-renderer-web.png` |
 
+### Table Count — the capability model, end to end
+
+The only bundled plugin that holds a capability, and the only one whose
+walkthrough exercises the permission path at all. Everything else in
+this list runs under `plugin-minimal` and never asks the user for
+anything, so without this step a full pass of the checklist would say
+nothing about whether grants work.
+
+Check the refusal *before* granting. A plugin that works whether or not
+the user approved it is the failure this is looking for, and it looks
+identical to success if you grant first.
+
+| Edition | Steps | Pass criteria |
+|---|---|---|
+| Desktop | Connect to any database. Open the plugins panel **before** granting anything. | `Table Count` lists `db.read.any` and `db.session.context.read` as **pending**, each with the purpose text from its manifest. |
+| Desktop | Run any query with the grants still pending. | The plugin logs that it was refused. No table count appears. The query itself is unaffected — a refused plugin must not disturb the user's own work. |
+| Desktop | Grant both capabilities, then run a query again. | The plugin logs the user-table count. Cross-check it against the object tree; a wrong number means the session it queried is not the one on screen. |
+| Desktop | Revoke one capability, run a query again. | Refused again. A grant that cannot be taken back is not a grant. |
+| Web | Same four steps through the admin plugin panel. | Same outcomes. Web has no keyring, clipboard, or notifications, but `db` works identically — if it does not, the two editions have drifted. |
+
 ## Sign-off block
 
 When the 18 screenshots are in `plamenix/docs/screenshots/bundled-plugins/`
