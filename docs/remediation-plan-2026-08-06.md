@@ -212,7 +212,16 @@ Two things came out of firing them:
 - **Failures were indistinguishable to the host.** `DispatchOutcome::Failed` carried `err.to_string()`, which on a wasmtime error is only the outermost layer; the reason lives in the error's source. A runaway loop, a panicking plugin, and a refused allocation all reached the supervisor as the same opaque string, so the assertion "this plugin was *preempted*" could not be written. `Failed` now carries a classified `CallFailure`. Note that the deadline-to-`Trap::Interrupt` mapping is undocumented by wasmtime and rests on that test.
 - **Preemption depends on the host embedding, not on this crate.** The epoch ticker is a Tokio task and a spinning plugin holds its thread without yielding, so on a current-thread runtime the ticker never runs and the call never ends. Both shells happen to use multi-threaded runtimes; nothing required them to. Recorded in `plugin-architecture.md` §9.
 
-Item 6 (interceptor WIT exports) and item 7 (WIT world enforcement) remain.
+**Items 6 and 7 are now done too, so Wave 4 is complete.**
+
+Item 6 shipped `intercept: func(point, context-json) -> interception` in the WIT, manifest validation for `[[contributions.interceptors]]`, a host-side chain with the same semantics as the TypeScript one, and a bridge that registers plugins into the existing chains from both shells. The design deviates from the sketch in `plugin-interceptors.md` — one dispatching export rather than eight named ones, a JSON context rather than a host-owned resource — and that doc now records both the reasons and what it costs.
+
+Item 7 turned the WIT header's three promises into enforcement. Two consequences worth carrying forward:
+
+- **No wasm plugin can currently hold any capability.** Only `plugin-minimal` is linkable, because the imports the higher tiers expose have no host implementation, and minimal exposes none of the imports a capability would exercise. Capability grants are reachable today only for UI-only plugins. The permissions dialog has correspondingly little to show for wasm plugins, which is honest rather than new — it was previously showing grants that could never be exercised.
+- **This is a breaking change for existing manifests.** A manifest that requests a capability without declaring a world that exposes it is now refused. Six test fixtures and the shipped `hello` plugin were all in that state; `hello` was asking users to approve db, notify, and clipboard access for a plugin whose code logs one line.
+
+Two divergences found along the way and not yet fixed, both Wave 7 material: the capability grammar the parser implements is dot-separated (`db.write.any`), while `plugin-interceptors.md` and `capability-model.md` use a mixed dotted/colon form (`db.write:execute`) that nothing parses; and `plamenix-web/packages/client` has no test files at all, so `pnpm -r test` fails there on an empty run.
 
 ### Wave 5 — Web edition (1 week for localhost-only, per Q1)
 
