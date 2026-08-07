@@ -95,42 +95,38 @@ The chain is resilient to single-interceptor failure; only the offending plugin 
 
 ## Wire
 
-```wit
-interface interceptor {
-    resource context {
-        get-field: func(name: string) -> option<string>;
-        set-field: func(name: string, value: string);
-    }
+As shipped, in `plamenix:plugin@1.0.0`:
 
-    enum decision-kind { continue, cancel }
-    record decision {
-        kind: decision-kind,
-        reason: option<string>,  // populated when kind = cancel
-    }
+```wit
+/// What an interceptor wants the host to do with the operation.
+variant interception {
+    proceed,
+    replace(string),   // JSON context replacing the one handed in
+    cancel(string),    // user-facing reason; never optional
 }
 
-// Plugins implement one export per extension point they participate in.
-// The host calls these by name on the plugin's component instance.
-export query-executing:        func(ctx: borrow<context>) -> interceptor.decision;
-export cell-committing:        func(ctx: borrow<context>) -> interceptor.decision;
-export row-inserting:          func(ctx: borrow<context>) -> interceptor.decision;
-export row-deleting:           func(ctx: borrow<context>) -> interceptor.decision;
-export connection-opening:     func(ctx: borrow<context>) -> interceptor.decision;
-export export-starting:        func(ctx: borrow<context>) -> interceptor.decision;
-export editor-saving:          func(ctx: borrow<context>) -> interceptor.decision;
-export schema-action-applying: func(ctx: borrow<context>) -> interceptor.decision;
+intercept: func(point: string, context-json: string) -> interception;
 ```
 
-Plugins implement only the exports for points they want to participate in; the others are no-ops the host never calls.
+One export, dispatched on the point name, sitting in the `plugin` interface next to `handle-event`.
 
-### Context as a resource handle
+### Why one export rather than eight
 
-`context` is a WIT `resource` rather than a plain record so the host can:
-- Add new fields without recompiling plugins (lifetime-attached, host-owned).
-- Enforce read-only views on fields the plugin should not mutate (`sessionId` is gettable but not settable).
-- Garbage-collect context state when the chain completes (no plugin-side leaks).
+The original sketch gave each extension point its own named export and passed the context as a WIT `resource` with `get-field` / `set-field`. Three things argued against it once the surrounding code existed:
 
-`borrow<context>` gives the plugin temporary access; on chain completion the host drops the resource.
+- **Adding an extension point is supposed to be SemVer-minor** (see above). With one export per point it is a change to the WIT contract, so every plugin's component shape shifts. With a dispatcher the host adds a point and no plugin is touched.
+- **`handle-event` already established the pattern** — `func(topic, payload)`, one mandatory export, JSON-opaque payload, an empty body for plugins that registered nothing. A second, differently-shaped dispatch mechanism next to it would be two idioms for one job.
+- **Host-owned resources are not used anywhere else in this host.** The `set-field` design also cannot express the transform path cleanly: the host would have to diff a mutated resource to discover what changed, where `replace(string)` states it outright.
+
+What the resource design bought that this does not: field-level read-only enforcement. `sessionId` being gettable-but-not-settable is now a host-side check on the replacement context rather than something the type system refuses. That is a real reduction in guarantee and is written down here rather than glossed.
+
+Exports are mandatory at the WIT level for both `handle-event` and `intercept`, for the same reason: a component's shape must not depend on what it registered at install time. A plugin that intercepts nothing returns `proceed`.
+
+### One round trip per chain, not per plugin
+
+The host runs the whole plugin segment of a chain in a single call (`run_chain`), applying priority order, replace propagation, and cancel short-circuit on its side. The renderer registers **one** handler per chain, in `plamenix-ui/src/interceptors/plugin-bridge.ts`.
+
+The alternative — one renderer handler per plugin, so the TypeScript chain interleaves plugins with built-ins — costs a transport round trip per plugin inside a 500 ms budget that also has to cover the built-ins. The reserved priority band makes the interleaving moot anyway: plugins are confined to 100 and above and built-ins live below 100, so no plugin can be scheduled before a built-in. The case this cannot express is a plugin sitting *between* two built-ins, which nothing needs today.
 
 ### Manifest declaration
 
@@ -145,10 +141,13 @@ purpose = "Block destructive SQL against prod connections"
 
 `purpose` is the rationale text shown in the Permissions panel + install dialog (Info.plist analog).
 
-The host enforces:
-- `extension_point` must be one of the known points (typo refused at install).
-- `priority` is an integer in `[0, 1000]`. Reserve `[0, 99]` for first-party built-ins.
-- `purpose` is optional; `plamenix-cli validate` warns when it is missing rather than rejecting, since the capability is what the host enforces.
+The host enforces, at manifest parse:
+- `extension_point` must be one of the eight known points. A typo is refused with the valid set listed, because the failure mode otherwise is a handler that silently never runs.
+- `priority` must be in `[100, 1000]`. `[0, 99]` is reserved for the host's own interceptors and a plugin cannot claim it — the read-only guard is not something a plugin gets to preempt. Defaults to `100`.
+- The point's capability must be declared in `[permissions]`. This is the load-bearing one: an interceptor sees the context of every operation it intercepts, so registering for `cell.committing` without a write capability would read every value the user edits while showing an empty permissions dialog.
+- `purpose` stays optional; the capability is what the host enforces.
+
+`before` / `after` topological hints are **not implemented**. The chain resolves on `priority`, then plugin id — the id tie-break exists so two users with the same plugins get the same order regardless of what they installed first.
 
 ## Capability gates
 
