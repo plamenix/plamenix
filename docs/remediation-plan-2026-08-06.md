@@ -205,6 +205,15 @@ Q2 was decided as **full runtime including interceptor chains**, larger than the
 
 Items 1–5 integrate existing tested code. Items 6–7 are new design work.
 
+**Items 1–5 are done, and items 2, 4, and 5 are now demonstrated rather than asserted.** They had been landing with their guarantees proven by construction — an epoch deadline set by hand, `on_exit` called directly, arithmetic checked — which is the same module-local definition of done that §6 exists to retire. A fixture that misbehaves on purpose (`examples/misbehaving-plugin`, driven by `tests/misbehaving_plugin.rs`) now spins, traps, and allocates until refused, through the real dispatch path.
+
+Two things came out of firing them:
+
+- **Failures were indistinguishable to the host.** `DispatchOutcome::Failed` carried `err.to_string()`, which on a wasmtime error is only the outermost layer; the reason lives in the error's source. A runaway loop, a panicking plugin, and a refused allocation all reached the supervisor as the same opaque string, so the assertion "this plugin was *preempted*" could not be written. `Failed` now carries a classified `CallFailure`. Note that the deadline-to-`Trap::Interrupt` mapping is undocumented by wasmtime and rests on that test.
+- **Preemption depends on the host embedding, not on this crate.** The epoch ticker is a Tokio task and a spinning plugin holds its thread without yielding, so on a current-thread runtime the ticker never runs and the call never ends. Both shells happen to use multi-threaded runtimes; nothing required them to. Recorded in `plugin-architecture.md` §9.
+
+Item 6 (interceptor WIT exports) and item 7 (WIT world enforcement) remain.
+
 ### Wave 5 — Web edition (1 week for localhost-only, per Q1)
 
 Localhost binding with explicit refusal to bind externally, Origin/CSRF checks, remove the request-controlled `dlopen`, session reaping with idle timeout, bounded exports, and an actual deployment path (the server serves no static assets today, and production CORS is off, so the SPA is reachable neither same-origin nor cross-origin).
@@ -221,7 +230,7 @@ The genuine design wins, as opposed to defect repair:
 ### Wave 7 — Docs reconciliation, human-eyes pass, re-review (3–4 days)
 
 - Rewrite the capability grammar, event catalogue, WIT world tiering, and manifest `[contributions.ui]` sections to match shipped reality — most of this is mechanical once Q2/Q3 are decided.
-- **Hand-read `plamenix-ui/src/db/inline-edit.ts`.** It builds the UPDATE/DELETE statements — the one place the product destroys user data — and it contains literal NUL bytes in its sentinel constants, which made it invisible to every grep-based sweep including this review's. Replace the NULs with ` ` escapes and give the bulk-update path tests.
+- **Hand-read `plamenix-ui/src/db/inline-edit.ts`.** It builds the UPDATE/DELETE statements — the one place the product destroys user data — and it contains literal NUL bytes in its sentinel constants, which made it invisible to every grep-based sweep including this review's. Replace the NULs with `\0` escapes and give the bulk-update path tests.
 - Final adversarial re-review before tagging (worth running as a multi-agent pass again — independent skeptics are the point).
 - Then I9.13: tag `1.0.0-beta`.
 
