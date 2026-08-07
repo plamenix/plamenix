@@ -422,6 +422,14 @@ Per-plugin defaults. Manifest can request elevation with explicit capability + U
 
 Fuel-based limits (`Config::consume_fuel`) are NOT used. Fuel gives determinism we don't need and overhead we do feel. Epoch is the right choice for an IDE.
 
+### The host embedding has to cooperate
+
+Epoch preemption only works if the ticker runs on a **different thread** from the call it is policing. The ticker is a Tokio task; a plugin spinning inside wasm holds its thread without yielding, so on a current-thread runtime the ticker is never scheduled, the epoch never advances, and the call runs forever. The symptom is a pegged core, not a timeout.
+
+Both shells satisfy this today — Tauri and napi-rs each run a multi-threaded Tokio runtime — but it is a property of the *embedding*, not of `plamenix-plugin-host`. Any new host that embeds the plugin runtime must provide a multi-threaded runtime or preemption silently stops working. `tests/misbehaving_plugin.rs` is the only place this is enforced, via `#[tokio::test(flavor = "multi_thread")]` on the runaway cases; it was found by writing those tests, not by design.
+
+A related consequence: a plugin that exceeds its deadline is reported as `FailureKind::Deadline`, distinct from `FailureKind::Trapped` for a guest fault. wasmtime does not document which trap an exceeded epoch deadline raises, so that mapping rests on the preemption test rather than on the engine's contract.
+
 ---
 
 ## 10. Grant UX flow
