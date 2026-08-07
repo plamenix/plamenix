@@ -2,20 +2,27 @@
 
 Companion to `ARCHITECTURE_REVIEW_2026-08-06.md` (13 critical + 36 major confirmed findings).
 Written 2026-08-06 after independently re-establishing build/test truth on this machine.
+Reconciled with the code 2026-08-07: several sections had gone on describing
+work as open after it landed, which is the failure mode §6 exists to retire.
+Where a wave's plan was superseded by what the work found, the original text
+is kept under "Original description follows" rather than rewritten.
 
 ---
 
-## 0. Status — Wave 0 complete (2026-08-06)
+## 0. Status — Waves 0 through 5 complete (2026-08-07)
 
-All five dirty repos are committed on branch `feat/plugin-suite`
-(`docs/plugin-suite` in the meta repo), and every target now compiles.
+All five repos are committed on branch `feat/plugin-suite`
+(`docs/plugin-suite` in the meta repo). **Waves 6 and 7 remain.**
 
-| Target | Before | After Wave 0 |
+| Target | As found (2026-08-06) | Now (2026-08-07) |
 |---|---|---|
-| plamenix-core | 198 pass, 2 test targets unbuildable | **225 pass, 0 fail** |
-| plamenix-desktop | tsc + cargo clean | unchanged |
-| plamenix-ui | 717 pass, 4 fail | unchanged (the 4 are Wave 1/2 work) |
-| plamenix-web | **does not build** | **all 4 packages typecheck; server 57/57** |
+| plamenix-core | 198 pass, 2 test targets unbuildable | **349 pass, 0 fail** |
+| plamenix-desktop | tsc + cargo clean, lib tests not in the loop | **14 lib tests, tsc clean** |
+| plamenix-ui | 717 pass, 4 fail | **784 pass, 0 fail** (85 files) |
+| plamenix-web | **does not build** | **server 109, client 41**, all packages typecheck |
+
+The client column is the one to read twice: it was `0` because the
+package had no test files, and `pnpm -r test` reported that as success.
 
 Branches rather than `main`, because `docs/git-workflow.md` requires main
 to stay green and the tree did not build. Merge when the suite is green.
@@ -121,7 +128,7 @@ Waves 0–2 are unconditional — they hold under every answer to Q1/Q2/Q3. Star
 
 After this, "does it build" becomes a meaningful signal for the first time since May.
 
-### Wave 1 — Data fidelity (3–5 days) — PARTIALLY LANDED 2026-08-06
+### Wave 1 — Data fidelity — COMPLETE 2026-08-06
 
 A DB tool that silently changes values is not credible, regardless of what else ships.
 
@@ -131,7 +138,7 @@ A DB tool that silently changes values is not credible, regardless of what else 
 - ✅ `masterkey` credential injection in `tabs-store.ts`, including clearing secrets on rehydrate so entries already in localStorage are not trusted.
 - ✅ Dashboard sections reconciled with the shipped Welcome surface (the tests, not the code, were wrong).
 
-**Still open — exact numerics.** Investigated 2026-08-06; **the approach in this plan needs revision and a decision.**
+**Exact numerics — both halves done 2026-08-06.** Investigated first, because the approach originally written into this plan was wrong; the analysis that replaced it follows, and the two ✅ markers below record what shipped.
 
 The original recommendation was "represent NUMERIC and BIGINT as strings on the wire." Investigation shows that is not sufficient on its own:
 
@@ -161,7 +168,7 @@ The original recommendation was "represent NUMERIC and BIGINT as strings on the 
 
 **Severity nuance, so this gets prioritised honestly:** Rust and JS both print floats with shortest-round-trip formatting, so a small value like `12.34` still *displays* as `12.34`. The NUMERIC damage concentrates in values past ~15–16 significant digits — NUMERIC(18,4) being the standard Firebird money type — plus arithmetic and re-serialisation into exports. The BIGINT half, by contrast, corrupts ordinary id columns outright, which is why it goes first.
 
-### Wave 2 — SQL execution correctness (3–4 days) — IN PROGRESS
+### Wave 2 — SQL execution correctness — COMPLETE 2026-08-06
 
 **Done 2026-08-06:** the statement splitter now honours `SET TERM` and BEGIN/END nesting, so procedures, triggers and `EXECUTE BLOCK` run from the editor; the conflated SELECT predicate is split into `accepts_row_limit` (SELECT/WITH — the `ROWS` grammar) and a three-way `statement_shape` (Cursor / OutputParams / NoResultSet) shared by the driver and both shells. `EXECUTE PROCEDURE` goes through `execute_returnable` because it returns output parameters with no cursor. Verified end to end against the Firebird 5.0.4 container in `crates/plamenix-db/tests/procedural_sql.rs`.
 
@@ -191,7 +198,7 @@ Delete `subprocess.rs`, the `RuntimeSubprocess` capability variant, the `runtime
 
 Then: signing needs a trust root (today any attacker-generated key reports "Signature verified"); sandbox limits must be host-clamped rather than manifest-chosen; grants must be rejected when they exceed what the manifest requested; `.plx` extraction needs decompressed-size limits.
 
-### Wave 4 — Plugin runtime, full scope including interceptors (4–6 weeks — DECIDED: full runtime)
+### Wave 4 — Plugin runtime, full scope including interceptors — COMPLETE 2026-08-07
 
 Q2 was decided as **full runtime including interceptor chains**, larger than the minimum I recommended. Re-scoped in dependency order:
 
@@ -221,7 +228,9 @@ Item 7 turned the WIT header's three promises into enforcement. Two consequences
 - **No wasm plugin can currently hold any capability.** Only `plugin-minimal` is linkable, because the imports the higher tiers expose have no host implementation, and minimal exposes none of the imports a capability would exercise. Capability grants are reachable today only for UI-only plugins. The permissions dialog has correspondingly little to show for wasm plugins, which is honest rather than new — it was previously showing grants that could never be exercised.
 - **This is a breaking change for existing manifests.** A manifest that requests a capability without declaring a world that exposes it is now refused. Six test fixtures and the shipped `hello` plugin were all in that state; `hello` was asking users to approve db, notify, and clipboard access for a plugin whose code logs one line.
 
-Two divergences found along the way and not yet fixed, both Wave 7 material: the capability grammar the parser implements is dot-separated (`db.write.any`), while `plugin-interceptors.md` and `capability-model.md` use a mixed dotted/colon form (`db.write:execute`) that nothing parses; and `plamenix-web/packages/client` has no test files at all, so `pnpm -r test` fails there on an empty run.
+Two divergences found along the way. The first is still open and is Wave 7 material: the capability grammar the parser implements is dot-separated (`db.write.any`), while `plugin-interceptors.md` and `capability-model.md` use a mixed dotted/colon form (`db.write:execute`) that nothing parses.
+
+The second — `plamenix-web/packages/client` having no test files at all, so `pnpm -r test` passed there on an empty run — **is fixed**. It has 41 tests now: the HTTP transport (the token is read once at module load, so import order decides whether requests authenticate; and the error path decides whether a user sees "password authentication failed" or "HTTP transport got 401"), the profile REST helpers (which build URLs and attach the auth header by hand, so the tests pin that a profile id containing `../` cannot address a different route and that the password travels in the body and never the path), and the batch-recording helpers lifted out of the 2,000-line `App.tsx` into `src/app-helpers.ts` so a test can reach them without importing the whole app graph.
 
 ### Wave 5 — Web edition hardening — **COMPLETE**
 
@@ -258,10 +267,76 @@ code is worse than no plan.
 
 Verified over the wire against a running server, not only by unit test.
 
-Still open, and deliberately: no rate limiting, no audit log, and one
-token for the whole server rather than per-user identity. Multi-user
-identity remains a 1.1 product question — who may reach which server,
-where credentials live, what isolation means.
+Three items listed here as deliberately open have since landed, on the
+same "maximum security in 1.0.0-beta" call:
+
+- **Rate limiting** — fixed-window, per actor once authenticated and per
+  source address before that, with a sweep so expired windows do not
+  accumulate one entry per address forever.
+- **An audit log**, in Plamenix's own metadata database. It records
+  refusals *and* authenticated writes, because a log of refusals alone
+  answers "was anyone turned away" and not "who dropped that table".
+  Writes are fire-and-forget with a logged catch — an unwritable log is
+  worth knowing about and is not worth refusing to serve over, or a full
+  disk becomes a denial of service.
+- **Named tokens** — `name:token,name2:token2`, compared in constant
+  time. Identity, not isolation: every token still reaches the same
+  data, so the audit log can say *which* operator acted and one
+  credential can be revoked without rotating the rest.
+
+Still open, and deliberately: **multi-user isolation**. That remains a
+1.1 product question — who may reach which server, where credentials
+live, what isolation means — and named tokens deliberately do not
+pretend to answer it.
+
+#### Follow-on: Plamenix's own metadata database — **COMPLETE 2026-08-07**
+
+The audit log needed somewhere to live, and the obvious answer was the
+SQLite file the server already carried. The question that followed was
+why a Firebird IDE, shipping a Firebird engine, kept its own data in a
+different database — and the answer was that nobody had asked.
+
+`plamenix-core/crates/plamenix-meta` is that store: **Firebird
+Embedded**, opened through the driver the product ships, holding the
+audit log, the query history, and plugin capability grants in one
+`plamenix-meta.fdb`. It replaced four implementations of two tables:
+
+| Data | Was (desktop) | Was (web) | Now |
+|---|---|---|---|
+| Query history | `rusqlite` | `better-sqlite3` | `plamenix-meta` |
+| Plugin grants | JSON file | `better-sqlite3` | `plamenix-meta` |
+
+`better-sqlite3`, `@types/better-sqlite3`, and `rusqlite` are gone from
+the dependency trees. No migration: nothing is released, so an existing
+`history.sqlite` or `plugin_grants.json` is simply left where it is.
+
+Three things worth carrying forward:
+
+- **The engine takes the file exclusively, and the handle is one per
+  process.** That is not an optimisation to be undone later — it is the
+  only arrangement that works, and it shapes the API: `HistoryStore::open`
+  hands back an `Arc<MetaStore>` that the grant store then shares, and
+  the web server's `initMeta` is per-process rather than per-store.
+  Tests isolate by profile id and plugin id, not by temp file.
+- **The in-memory grant map survived, with its role inverted.**
+  `HostServices::granted_for` is synchronous and runs once per plugin
+  call, so it reads a cache; the database is the authority the cache is
+  filled from at boot. Writes persist first and update the cache only on
+  success, so a failed write leaves the cache honest instead of
+  promising a capability that did not persist. Both editions now have
+  this shape; previously only the web edition did.
+- **Writing the missing tests found a real bug in both old
+  implementations.** `list_history` ordered by `EXECUTED_AT DESC` alone,
+  and statements run faster than a millisecond resolves to, so ties were
+  ordinary and the engine returned them in arbitrary order. The History
+  panel showed batches shuffled, and `FIRST n` cut an arbitrary member
+  of the tie — which presented as *the retention cap deleting the user's
+  newest query*. Both SQLite versions had the same bare `ORDER BY`. The
+  list now tiebreaks on `ID`, matching what the trim deletes by.
+
+Exercising our own driver on every app start is the second-order
+benefit: the metadata store is a Firebird workload the product runs
+whether or not anyone connects to a database.
 
 ### Wave 6 — Architecture improvements (1 week)
 
@@ -285,7 +360,9 @@ The genuine design wins, as opposed to defect repair:
 
 Waves 1 and 2 come before the plugin work even though plugins are the differentiator, because data corruption and an editor that cannot run a stored procedure undermine the product's core claim, and because they are bounded, high-confidence fixes that need no decisions. Wave 3 precedes Wave 4 so the subprocess deletion lands before anything is built on top of it.
 
-**Rough total with the decisions taken: 8–11 weeks**, putting 1.0.0-beta in October 2026. Wave 4 dominates at 4–5 weeks. The schedule risk concentrates in Wave 4 item 1 (persistent instances — wasmtime `Store` lifetime across the Tauri and NAPI boundaries, never yet exercised) rather than in interceptors, which turned out to be mostly bridging work over an existing tested TypeScript framework.
+**Original estimate: 8–11 weeks**, putting 1.0.0-beta in October 2026, with Wave 4 dominating at 4–5 weeks and the schedule risk concentrated in its item 1 (persistent instances — wasmtime `Store` lifetime across the Tauri and NAPI boundaries, never yet exercised) rather than in interceptors, which turned out to be mostly bridging work over an existing tested TypeScript framework.
+
+**Waves 0 through 5 landed between 2026-08-06 and 2026-08-07.** That is far ahead of the estimate and the estimate is not what should be read into it: the wave descriptions were written against a codebase whose problem was overwhelmingly *unreachable code*, and reaching it turned out to be wiring rather than authoring more often than not. Waves 6 and 7 remain, and Wave 6's `App.tsx` de-duplication is genuine new design work rather than wiring.
 
 If the date needs to come down, the honest levers are deferring Wave 4 items 6–7 to 1.1, or dropping the web edition to desktop-only. Cutting Waves 1–2 is not a lever — they are what makes the tool trustworthy.
 
