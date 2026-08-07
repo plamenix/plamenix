@@ -74,7 +74,7 @@ Treating them as 49 independent bugs would triple the work. They are:
 
 | Question | Decision |
 |---|---|
-| Q1 web edition | **Localhost-only, single-user** (as recommended) |
+| Q1 web edition | **Localhost-only, single-user** — then **superseded**: authentication landed in 1.0.0-beta after all, see below |
 | Q2 plugin runtime | **Full runtime including interceptors** — larger than recommended; §4 Wave 4 re-scoped |
 | Q3 subprocess hatch | **Delete it** (as recommended) |
 
@@ -223,9 +223,45 @@ Item 7 turned the WIT header's three promises into enforcement. Two consequences
 
 Two divergences found along the way and not yet fixed, both Wave 7 material: the capability grammar the parser implements is dot-separated (`db.write.any`), while `plugin-interceptors.md` and `capability-model.md` use a mixed dotted/colon form (`db.write:execute`) that nothing parses; and `plamenix-web/packages/client` has no test files at all, so `pnpm -r test` fails there on an empty run.
 
-### Wave 5 — Web edition (1 week for localhost-only, per Q1)
+### Wave 5 — Web edition hardening — **COMPLETE**
 
-Localhost binding with explicit refusal to bind externally, Origin/CSRF checks, remove the request-controlled `dlopen`, session reaping with idle timeout, bounded exports, and an actual deployment path (the server serves no static assets today, and production CORS is off, so the SPA is reachable neither same-origin nor cross-origin).
+Scope grew past the Q1 decision. Q1 chose localhost-only single-user and
+deferred authentication to 1.1; the call was later made for maximum
+security in 1.0.0-beta, so auth is in. Recorded here because the code
+now contradicts the decision above, and a plan that disagrees with the
+code is worse than no plan.
+
+- **Host allowlist** — the item that mattered most, and the one the
+  original list understated. Binding to loopback is not a defence
+  against a web page: an attacker points a domain at `127.0.0.1`, waits
+  out the TTL, and their page's requests are *same-origin*, so no
+  preflight happens and CORS never applies. What they cannot change is
+  the `Host` header. Matching is exact — a prefix check would accept
+  `localhost.evil.com`.
+- **Bearer token on every `/api` route.** Loopback is not a boundary
+  between local processes. Generated at boot when unset, because a
+  control that switches itself off by omission is off wherever nobody
+  looked. Delivered to the SPA in the served HTML rather than a cookie,
+  so it travels in a header the browser never attaches by itself and
+  CSRF cannot arise.
+- **Origin check**, redundant with the token on purpose.
+- **`fbclient` path is no longer request-controlled** and `HOST`
+  defaults to loopback — done earlier, in its own commit.
+- **Session reaping**, measured from last use rather than creation.
+- **Exports bounded at the producer**, not at the response: the route
+  chunks its socket write, but the whole export existed in memory twice
+  before the first byte left.
+- **The SPA is served.** There was no static handler at all, so the
+  client was reachable neither same-origin nor cross-origin. This was
+  the largest gap in the wave and it was not a security item — the
+  edition did not work as a product.
+
+Verified over the wire against a running server, not only by unit test.
+
+Still open, and deliberately: no rate limiting, no audit log, and one
+token for the whole server rather than per-user identity. Multi-user
+identity remains a 1.1 product question — who may reach which server,
+where credentials live, what isolation means.
 
 ### Wave 6 — Architecture improvements (1 week)
 
