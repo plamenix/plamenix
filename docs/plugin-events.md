@@ -4,20 +4,52 @@ Plugins observe shell state changes through a typed event bus. Pair this documen
 
 This catalogue ports `PLUGIN_ARCHITECTURE.md` §7 into the docs tree where decision records live.
 
+## Two buses, and which one you are on
+
+There are two event buses, and the distinction decides whether a
+subscription of yours will ever fire.
+
+| Bus | Where | Who subscribes | How a topic gets there |
+|---|---|---|---|
+| **UI bus** | `plamenix-ui`, TypeScript, in the browser/WebView | UI contributions and React panels | `emit*` helpers in `plamenix-ui/src/events/` |
+| **Host bus** | `plamenix-plugin-host`, Rust | **WASM plugins**, via `handle-event` | the shell calling `emit_event` / `emitEvent` |
+
+The catalogue below is the **UI bus**. Almost none of it reaches WASM
+plugins today.
+
+> **What actually reaches a WASM plugin right now: `db/query/executed`,
+> and nothing else.** Both shells dispatch that one topic after a
+> statement batch. A plugin that declares `event_subscriptions` for any
+> other topic in this document will load, activate, show its
+> subscription in the plugins panel, and never be called.
+>
+> This is a gap, not a design: the UI bus grew first and the host
+> dispatch was wired for a single producer to prove the path. Bridging
+> the rest is tracked work, not a decision. Recorded here rather than
+> left for an author to discover by writing a plugin that does nothing.
+
 ## Naming convention
 
-Hierarchical, reverse-DNS-style topics, period-separated within an area, slash-separated between area and entity:
+Slash-separated `<area>/<entity>` topics. Subscribers may glob: `editor/*`
+matches every `editor/...` topic, and `**` matches zero or more trailing
+segments.
 
-```
-<namespace>:<area>/<entity>.<verb>
-```
-
-| Namespace | Owner | Examples |
+| Namespace | Owner | Example |
 |---|---|---|
-| `plamenix:*` | first-party shell | `plamenix:tab/opened` · `plamenix:query/executed` |
-| `<plugin-id>:*` | plugin that emitted | `com.example.csv-export:job/completed` |
+| *(unprefixed)* | first-party shell | `tab/opened` · `query/executed` |
+| `<plugin-id>:` | plugin that emitted it | `com.example.csv-export:job/completed` |
 
-**Subscribers may glob**: `plamenix:editor/*` matches every `editor/...` topic; `plamenix:editor/cell.*` matches just cell events.
+The plugin prefix is **enforced, not a convention**: a plugin publishing
+under its own id needs no capability, because that namespace is its own
+by construction. Publishing anywhere else requires
+`event.publish.<channel>` for the topic's first segment, so a plugin
+cannot forge a shell event without a grant naming the area it is
+forging into.
+
+Shell topics carry no prefix. This document used to show them as
+`plamenix:tab/opened`; nothing emitted that, and the bus splits patterns
+on `/` only, so `plamenix:*` was a single literal segment that matched
+nothing at all.
 
 ## Past-tense vs present-participle — discipline
 
@@ -34,82 +66,91 @@ The split is load-bearing. An interceptor cannot become an event because it woul
 
 | Topic | Payload | Notes |
 |---|---|---|
-| `plamenix:app/started` | `{}` | Fires once after boot completes (post `boot:ready`). |
-| `plamenix:app/shutdown` | `{}` | Cancellable in interceptor form; see `app.shutdown-requesting`. |
-| `plamenix:plugin/activated` | `{pluginId}` | Fires after the activated plugin returns `Ok` from `activate()`. |
-| `plamenix:plugin/deactivated` | `{pluginId, reason}` | `reason ∈ {"unload", "uninstall", "permission-revoked", "host-shutdown"}`. |
-| `plamenix:plugin/crashed` | `{pluginId, trap, willRestart}` | `trap` carries the wasmtime trap code; `willRestart` reflects the supervisor's decision per the plugin's restart policy. |
+| `app/started` | `{}` | Fires once after boot completes (post `boot:ready`). |
+| `app/shutdown` | `{}` | Cancellable in interceptor form; see `app.shutdown-requesting`. |
+| `plugin/activated` | `{pluginId}` | Fires after the activated plugin returns `Ok` from `activate()`. |
+| `plugin/deactivated` | `{pluginId, reason}` | `reason ∈ {"unload", "uninstall", "permission-revoked", "host-shutdown"}`. |
+| `plugin/crashed` | `{pluginId, trap, willRestart}` | `trap` carries the wasmtime trap code; `willRestart` reflects the supervisor's decision per the plugin's restart policy. |
 
 ### Tabs + sessions
 
 | Topic | Payload |
 |---|---|
-| `plamenix:tab/opened` | `{tabId}` |
-| `plamenix:tab/activated` | `{tabId, previousTabId}` |
-| `plamenix:tab/closed` | `{tabId}` |
-| `plamenix:tab/renamed` | `{tabId, newTitle}` |
+| `tab/opened` | `{tabId}` |
+| `tab/activated` | `{tabId, previousTabId}` |
+| `tab/closed` | `{tabId}` |
+| `tab/renamed` | `{tabId, newTitle}` |
 
 ### Connection
 
 | Topic | Payload | Notes |
 |---|---|---|
-| `plamenix:connection/opened` | `{sessionId, profile, engineVersion}` | `profile` carries enough metadata (host, db stem, user) to identify, never secrets. |
-| `plamenix:connection/failed` | `{config, error}` | `config` redacts password + encryption-key fields. |
-| `plamenix:connection/closed` | `{sessionId, reason}` | `reason ∈ {"user", "dead", "host-shutdown"}`. |
-| `plamenix:connection/health-changed` | `{sessionId, health}` | `health ∈ {"healthy", "reconnecting", "dead", "unknown"}`. |
+| `connection/opened` | `{sessionId, profile, engineVersion}` | `profile` carries enough metadata (host, db stem, user) to identify, never secrets. |
+| `connection/failed` | `{config, error}` | `config` redacts password + encryption-key fields. |
+| `connection/closed` | `{sessionId, reason}` | `reason ∈ {"user", "dead", "host-shutdown"}`. |
+| `connection/health-changed` | `{sessionId, health}` | `health ∈ {"healthy", "reconnecting", "dead", "unknown"}`. |
 
 ### Query execution
 
 | Topic | Payload | Notes |
 |---|---|---|
-| `plamenix:query/executed` | `{sessionId, sql, outcomes, durationMs}` | Fires once per statement batch, post-commit. |
-| `plamenix:query/failed` | `{sessionId, sql, error}` | Fires if execution raised any non-recovered error. |
+| `query/executed` | `{sessionId, sql, outcomes, durationMs}` | Fires once per statement batch, post-commit. |
+| `query/failed` | `{sessionId, sql, error}` | Fires if execution raised any non-recovered error. |
 
 ### Row mutation
 
 | Topic | Payload | Notes |
 |---|---|---|
-| `plamenix:cell/committed` | `{table, pk, column, oldValue, newValue}` | Inline edit applied. |
-| `plamenix:row/inserted` | `{table, pk, values}` | `pk` may be empty array when the engine-assigned key cannot be predicted client-side. |
-| `plamenix:row/deleted` | `{table, pk}` | Fires once per row in a bulk delete. |
+| `cell/committed` | `{table, pk, column, oldValue, newValue}` | Inline edit applied. |
+| `row/inserted` | `{table, pk, values}` | `pk` may be empty array when the engine-assigned key cannot be predicted client-side. |
+| `row/deleted` | `{table, pk}` | Fires once per row in a bulk delete. |
 
 ### Schema
 
 | Topic | Payload | Notes |
 |---|---|---|
-| `plamenix:schema/described` | `{sessionId, schema}` | Fires after a full `describe-schema` round-trip. |
-| `plamenix:schema/action-applied` | `{sessionId, action, target}` | `action ∈ {"recreate", "drop", "alter", "create", "create-index", "recompute-statistics", …}`. |
+| `schema/described` | `{sessionId, schema}` | Fires after a full `describe-schema` round-trip. |
+| `schema/action-applied` | `{sessionId, action, target}` | `action ∈ {"recreate", "drop", "alter", "create", "create-index", "recompute-statistics", …}`. |
+
+### Editor
+
+| Topic | Payload |
+|---|---|
+| `editor/changed` | `{tabId, sql}` |
+| `editor/focused` | `{tabId, focusedAt}` |
+| `editor/saved` | `{tabId, sql, savedAt}` |
+| `editor/selection-changed` | `{tabId, from, to}` |
 
 ### Export
 
 | Topic | Payload |
 |---|---|
-| `plamenix:export/started` | `{exportId, format, scope}` |
-| `plamenix:export/completed` | `{exportId, bytes, durationMs}` |
-| `plamenix:export/failed` | `{exportId, error}` |
+| `export/started` | `{exportId, format, scope}` |
+| `export/completed` | `{exportId, bytes, durationMs}` |
+| `export/failed` | `{exportId, error}` |
 
 ### Settings + theme
 
 | Topic | Payload |
 |---|---|
-| `plamenix:settings/changed` | `{key, oldValue, newValue}` |
-| `plamenix:theme/changed` | `{mode, accent}` |
+| `settings/changed` | `{key, oldValue, newValue}` |
+| `theme/changed` | `{mode, accent}` |
 
 ### Editor
 
 | Topic | Payload | Notes |
 |---|---|---|
-| `plamenix:editor/focused` | `{tabId}` | |
-| `plamenix:editor/changed` | `{tabId, length}` | Debounced server-side at 200ms. |
-| `plamenix:editor/selection-changed` | `{tabId, range}` | |
-| `plamenix:editor/saved` | `{tabId}` | Fires after `editor.saving` interceptor chain completes. |
+| `editor/focused` | `{tabId}` | |
+| `editor/changed` | `{tabId, length}` | Debounced server-side at 200ms. |
+| `editor/selection-changed` | `{tabId, range}` | |
+| `editor/saved` | `{tabId}` | Fires after `editor.saving` interceptor chain completes. |
 
 ## Payload + schema discipline
 
 Every event payload includes `schemaVersion: 1` as a mandatory field. Rules:
 
 - **Adding** an optional payload field is SemVer-minor on the topic.
-- **Renaming or removing** an existing field is SemVer-major → the new shape ships on a new topic (e.g. `plamenix:query/executed.v2`); the old topic stays for one minor release with the old payload so subscribers can migrate.
+- **Renaming or removing** an existing field is SemVer-major → the new shape ships on a new topic (e.g. `query/executed.v2`); the old topic stays for one minor release with the old payload so subscribers can migrate.
 - Internal fields the host may need for debugging but plugins should not depend on are prefixed `_` and excluded from the SemVer contract.
 
 ## Wire
@@ -127,21 +168,35 @@ interface event-bus {
 
 ### Subscription model
 
-Plugins subscribe via manifest, not at runtime. This keeps subscription discoverable from the registry without instantiating the plugin:
+Plugins subscribe via the manifest, not at runtime, so a subscription is
+discoverable from the registry without instantiating the plugin. It is a
+flat list of topics under `[contributions]`:
 
 ```toml
-[[contributions.event_subscriptions]]
-topic = "plamenix:query/executed"
-purpose = "Append query to audit log"
+[contributions]
+event_subscriptions = ["db/query/executed"]
 ```
 
-The host dispatches matching events to the plugin's exported `handle-event(topic: string, payload: string)`. Subscriptions auto-clean on `deactivate()` per the OTP-style supervisor cleanup.
+The host dispatches matching events to the plugin's exported
+`handle-event(topic: string, payload: string)`. Subscriptions are
+withdrawn when the plugin deactivates.
 
-Capability `event:subscribe:<channel>` gates the subscription declaration; manifests that subscribe to `plamenix:cell/committed` must request `event:subscribe:plamenix:cell.committed`.
+**Subscription is not gated by a capability.** There is no
+`event.subscribe.*` in the grammar and nothing checks one. Any plugin
+may declare any topic. That is defensible rather than accidental — the
+host only ever dispatches what it chooses to dispatch, and a payload
+contains what the shell decided to publish — but it does mean a
+subscription list is not a permission boundary, and the install dialog
+should not be read as though it were.
+
+Earlier revisions of this document described a
+`[[contributions.event_subscriptions]]` table array with `topic` and
+`purpose` fields, gated by a capability spelled
+`event:subscribe:<channel>`. None of the three existed.
 
 ### Publishing
 
-Publishing is runtime via the imported `event-bus.emit(topic, payload)`. Plugins may only publish to their own namespace (`<plugin-id>:*`) unless they hold an explicit `event:publish:<channel>` capability for the foreign topic.
+Publishing is runtime via the imported `event-bus.emit(topic, payload)`. Plugins may only publish to their own namespace (`<plugin-id>:*`) unless they hold an `event.publish.<channel>` capability naming the topic's first segment.
 
 ## Anti-patterns refused
 

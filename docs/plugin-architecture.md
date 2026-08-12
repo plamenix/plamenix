@@ -28,7 +28,7 @@ These are the non-negotiable design axes. Every later decision derives from thes
 
 3. **Two-layer extension surface.** *Static contributions* declared in the manifest (host reads at startup without loading plugin code). *Dynamic API* runtime register/listen/emit calls plugin code makes after activation. Both required. Atom failed because it had only dynamic; pure-static is too rigid for live workflows.
 
-4. **Default deny, granular grants, per-call attenuation.** Capabilities are `domain:verb:scope` triples. Plugins request the minimum they need. Required capabilities consent at install time (MV3 style). Optional capabilities prompt at first use (iOS/Chrome style). Capabilities returning host objects return *resource handles*, not ambient pointers — a plugin granted `db:query` for connection X cannot reach connection Y.
+4. **Default deny, granular grants, per-call attenuation.** Capabilities are dot-separated `<resource>.<action>[.<scope>]` names. Plugins request the minimum they need. Required capabilities consent at install time (MV3 style). Optional capabilities prompt at first use (iOS/Chrome style). Capabilities returning host objects return *resource handles*, not ambient pointers — a plugin granted `db.read.any` acts on the session the host called it for, not one of its choosing.
 
 5. **OTP-style supervision over wasmtime stores.** One Engine across the host (JIT cache reuse); one `Store<PluginCtx>` per plugin instance (isolation). Crashes manifest as `Trap`; supervisor applies restart policy with intensity bounds (3 traps in 60s → auto-disable). The store-per-plugin pattern is the only structural way to get crash containment from wasmtime, since instances cannot deallocate until their Store drops.
 
@@ -142,61 +142,51 @@ Intensity bound: max N restarts in window W. Default `N=3, W=60s`. On exceed →
 
 ## 4. WIT worlds — capability tiers
 
-Rather than one monolithic WIT world per host, ship a tiered set. Each plugin declares which world it targets; host links only the matching imports. This is OCap enforced at the type level: a plugin targeting `plamenix:plugin-minimal` cannot even *attempt* to call `db.query` because the import doesn't exist in its world.
+Rather than one monolithic world, the contract ships a tiered set. A
+plugin declares which world it targets and the host links only that
+world's imports, so a `plugin-minimal` plugin cannot *attempt* to call
+`db.query-read` — the import does not exist in its world, and
+instantiation fails before any of its code runs.
 
-```wit
-// crates/plamenix-plugin-host/wit/
+**Five worlds, each including the one below it.** The shipped definitions
+are in `plamenix-plugin-sdk/wit/plamenix.wit`; this is a summary, and
+`plamenix-plugin-host/src/link.rs` registers exactly this set per world.
 
-package plamenix:plugin@1.0.0;
+| World | Adds | For |
+|---|---|---|
+| `plugin-minimal` | `host` (log, host-version, edition) | themes, tip packs, UI-only contributions |
+| `plugin-db-reader` | `db` | cell renderers, formatters, object inspectors |
+| `plugin-db-writer` | `db-write` | bulk edit, schema utilities, data generators |
+| `plugin-integrated` | `fs`, `net`, `event-bus`, `settings`, `command`, `clipboard` | export plugins, auth providers, audit integrators |
+| `plugin-integrated-desktop` | `notify`, `keyring` | plugins needing the OS keychain or system notifications; refuses to install on the web edition |
 
-// Tier 0: zero capabilities. UI-only plugins (themes, tip packs).
-world plugin-minimal {
-  import log: func(level: log-level, msg: string);
-  import host-version: func() -> string;
-  export activate: func() -> activation-result;
-  export deactivate: func();
-}
+Earlier revisions of this document described four worlds and called
+clipboard, notify and keyring "tier-orthogonal capabilities, requested
+explicitly per plugin". They are not orthogonal: clipboard is part of
+`plugin-integrated`, and notify and keyring are what
+`plugin-integrated-desktop` adds. The fifth world was missing entirely,
+and the sketch of `plugin-minimal` showed bare `log` / `host-version`
+functions rather than the `host` interface the contract actually
+exports.
 
-// Tier 1: read-only DB access. Cell renderers, formatters, object inspectors.
-world plugin-db-reader {
-  include plugin-minimal;
-  import db: interface { /* describe-schema, current-session, current-row */ };
-}
-
-// Tier 2: read+write DB. Bulk-edit plugins, data generators.
-world plugin-db-writer {
-  include plugin-db-reader;
-  import db-write: interface { /* execute (with capability check), tx-* */ };
-}
-
-// Tier 3: full IDE integration. Auth providers, export plugins.
-world plugin-integrated {
-  include plugin-db-writer;
-  import fs: interface  { /* preopened plugin-data dir */ };
-  import net: interface { /* host allow-list */ };
-  import settings: interface { /* per-plugin scope */ };
-  import event-bus: interface { /* emit/subscribe */ };
-}
-
-// Tier-orthogonal capabilities, requested explicitly per plugin:
-//   keyring, clipboard, notify (desktop-only)
-//   server-routes (web-only, future)
-```
-
-Plugin authors pick the smallest world that fits. Manifest enforces:
+Plugin authors pick the smallest world that fits, and declare it:
 
 ```toml
 [plugin]
 world = "plamenix:plugin@1.0.0/plugin-db-reader"
 ```
 
-Host refuses to load plugins whose declared world it doesn't recognize. Adding a new world is a SemVer-minor host change; modifying an existing world's shape is SemVer-major.
+The host refuses a world it does not recognise, and refuses a manifest
+requesting a capability its declared world does not expose — a plugin
+asking for `db.read.any` under `plugin-minimal` is rejected at load
+rather than failing at the first call. Adding a world is a SemVer-minor
+host change; changing an existing world's shape is SemVer-major.
 
 ---
 
 ## 5. Capability grammar
 
-All capabilities are `domain:verb[:scope]` triples. Finite, host-enforced through WIT worlds + runtime gating. No wildcards (refuse manifests requesting `<all_urls>`-style unbounded).
+All capabilities are dot-separated `<resource>.<action>[.<scope>]` names — see [`capability-model.md`](./capability-model.md) for the grammar the parser implements. Finite, host-enforced through WIT worlds plus runtime gating. No wildcards (a manifest requesting `<all_urls>`-style unbounded scope is refused).
 
 | Domain | Verb examples | Scope examples | Edition | Notes |
 |---|---|---|---|---|
@@ -628,7 +618,7 @@ Tracker: `PLUGIN_TRACKER.md` (sibling to this doc). Sections I0–I9 below, with
 
 ### I0 — Foundation (days 1–3, blocks all)
 
-- WIT contract additions: all 4 worlds (`plugin-minimal` / `plugin-db-reader` / `plugin-db-writer` / `plugin-integrated`) + orthogonal capabilities
+- WIT contract additions: all five worlds (`plugin-minimal` / `plugin-db-reader` / `plugin-db-writer` / `plugin-integrated` / `plugin-integrated-desktop`)
 - Capability grammar TOML schema (manifest validator)
 - Event catalog + interceptor catalog formalized
 - Update `plamenix/MILESTONES.md` M1 section
@@ -737,7 +727,7 @@ Tight. Three load-bearing items (I1 web host, I2 React SDK, I6 dynamic surface) 
 ## 17. Decisions to confirm before implementation
 
 1. **Single host crate vs split per edition?** Recommend: `plamenix-plugin-host` (Rust core, shared) + `plamenix-plugin-host-node` (napi wrapper). Desktop links the core directly; web links via napi.
-2. **WIT world granularity** — 4 tiers (above) or finer-grained? Recommend 4; more is over-engineered for 1.0.x.
+2. **WIT world granularity** — resolved: five tiers, as shipped. The fifth (`plugin-integrated-desktop`) exists because keyring and notifications have no web equivalent, so a plugin needing them must be refusable on that edition at load time.
 3. **Signing format** — *deferred 2026-08-07*: dual author/publisher signing only becomes meaningful with a curator to be the second signer. Until then a single author signature covering the archive is all that can be verified. Revisit alongside any registry work.
 4. **Reproducible builds** — *deferred 2026-08-07*: an audit pathway worth having, but it needs a published source-to-artefact mapping to check against. Revisit alongside any registry work.
 5. **Plugin storage scoping on web** — per-tenant or shared? Recommend shared in M1 single-machine assumption; per-tenant becomes a 1.x feature when multi-tenant lands.
