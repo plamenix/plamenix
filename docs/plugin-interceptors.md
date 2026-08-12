@@ -155,13 +155,13 @@ Each extension point requires the relevant capability domain in `[permissions.re
 
 | Extension point | Required capability |
 |---|---|
-| `query.executing` | `db:query.read` (for inspection) OR `db.write:execute` (to influence writes) |
-| `cell.committing` | `db.write:execute` |
-| `row.inserting` / `row.deleting` | `db.write:execute` |
+| `query.executing` | `db.read.any` (for inspection) OR `db.write.any` (to influence writes) |
+| `cell.committing` | `db.write.any` |
+| `row.inserting` / `row.deleting` | `db.write.any` |
 | `connection.opening` | `db:session.context.read` AND domain-specific auth caps |
-| `export.starting` | `db:query.read` |
+| `export.starting` | `db.read.any` |
 | `editor.saving` | (no capability — editor is plugin-shared surface) |
-| `schema.action-applying` | `db.write:execute` |
+| `schema.action-applying` | `db.write.any` |
 
 A plugin requesting an interceptor without the corresponding capability is refused at install.
 

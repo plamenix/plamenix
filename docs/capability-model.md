@@ -14,11 +14,8 @@ There is no single enforcement choke point. Capabilities are checked
 at four distinct moments, each closing a different class of leak:
 
 1. **Manifest parse time** — `Manifest::parse` runs the grammar over
-   every capability string + enforces structural rules (e.g.
-   `requires_subprocess = true` must be paired with the
-   `runtime.subprocess` capability in `[permissions].required`).
-   Failures surface as `PluginError::InvalidCapability` /
-   `PluginError::MissingSubprocessCapability` before the plugin ever
+   every capability string and enforces the structural rules. Failures
+   surface as `PluginError::InvalidCapability` before the plugin ever
    reaches the activator. Coverage: every code path that loads a
    manifest, including the loader, the install endpoint, and
    `plamenix validate`.
@@ -54,16 +51,12 @@ Examples (the full Rust `Permission` enum is the source of truth):
 
 ```
 db.read.any                                 # read every table
-db.read.table.<name>                        # read only one table
 db.write.any                                # write every table
-db.write.table.<name>                       # write only one table
 db.ddl.any                                  # DDL on every table
-db.ddl.table.<name>                         # DDL on one table
 db.schema.list                              # list tables/views/procedures
 db.schema.describe                          # describe one object's columns
 net.https                                   # any HTTPS endpoint
 net.https.<host>                            # only one HTTPS host
-runtime.subprocess                          # opt out of WASM sandbox
 ```
 
 Wildcards are NOT supported. Each capability that matters must be
@@ -80,55 +73,74 @@ Adding a capability there requires:
 4. Adding the runtime gate at the host-import call site that consumes
    it.
 
-## Capability classes (M1 reality)
+## Capability classes
 
-The classes below reflect what's actually wired in M1. Items marked
-**(M2)** appear in the grammar but have no runtime gate yet — plugins
-that declare them can pass the manifest parser, but the corresponding
-host import doesn't exist.
+Every class below has a host import behind it and a runtime gate at the
+call site. The list is derived from the `impl ... Host for HostState`
+blocks in `plamenix-plugin-host/src/imports/` and the `Permission::`
+checks inside them; if you are changing one, change both.
 
-### Database
+This section previously marked filesystem, auth and clipboard as
+**(M2)** — "grammar exists, no runtime gate yet". That stopped being
+true when the host import surface landed in Wave 4, and the filesystem
+entry additionally pointed readers at subprocess plugins as the
+workaround, which had been deleted a wave earlier.
 
-- `db.read.any`, `db.read.table.<name>`
-- `db.write.any`, `db.write.table.<name>`
-- `db.ddl.any`, `db.ddl.table.<name>`
+### Database — `db.rs`
+
+- `db.read.any`, `db.write.any`, `db.ddl.any`
 - `db.schema.list`, `db.schema.describe`
+- `db.session.context.read`
 
-Runtime gates: implemented in the napi binding's `host_state.rs` (web
-edition) + the desktop Tauri command bridge. Plugins that don't
-declare a `db.*` capability cannot invoke the corresponding driver
-call.
+Table-scoped forms (`db.read.table.<name>` and friends) are **refused
+by the parser**, with a message naming the capability to declare
+instead. Enforcing them means knowing which tables a statement touches,
+which means parsing SQL; accepting them ungated would grant everything
+while naming one table.
 
-### Network
+They used to parse, which was the worst of the three options: no call
+site accepts the table-scoped form, so the install dialog asked the user
+to approve `db.read.table.CUSTOMERS`, they approved it, and every
+subsequent db call was denied.
 
-- `net.https`, `net.https.<host>` *(M2 — runtime gate pending alongside
-  the SDK's HTTPS helper)*
+### Filesystem — `fs.rs`
 
-### Filesystem **(M2)**
+- `fs.read.dir.<id>`, `fs.write.dir.<id>`
 
-Currently absent from the grammar — plugins that need filesystem
-access ship as subprocess plugins. Logical-directory grants (`fs.read.dir.<id>`)
-land in M2 alongside the WASI preopens wiring.
+Logical directories only: `plugin-data`, `plugin-config`, `downloads`,
+`documents`, `temp`. The host owns the jail and resolves paths itself
+rather than handing plugins `wasi:filesystem`, which would be a
+strictly larger grant than any of these.
 
-### Auth **(M2)**
+### Settings — `settings.rs`
 
-OS-keyring access lives in `plamenix-secrets` today but isn't
-exposed to plugins. M2 will add `auth.os.macos` / `auth.os.windows` /
-`auth.os.linux-keyring` once the host import surface lands.
+- `settings.read`, `settings.write`
 
-### Clipboard / OS **(M2)**
+Plugin-scoped, not user-scoped. On the web edition that distinction
+matters and is not yet made — recorded in the remediation plan rather
+than solved.
 
-Same status as filesystem — grammar pending alongside the host
-import.
+### Network, clipboard, notifications, secrets, commands, events — `misc.rs`
 
-### Runtime
+- `net.https`, `net.https.<host>`, `net.http`
+- `clipboard.read`, `clipboard.write`
+- `os.notify`
+- `secrets.read.service.<service>`, `secrets.write.service.<service>`
+- `command.invoke`
+- `event.publish.<channel>`
 
-- `runtime.subprocess` — MUST be paired with
-  `runtime.requires_subprocess = true` in the manifest. The manifest
-  parser refuses bundles where either side is missing. Granting it
-  drops the plugin out of the WASM sandbox into a separate subprocess
-  with full IPC isolation. Triggers a stricter install-time warning
-  in the install dialog.
+The `net` transport is the shell's, not the host's: policy lives here,
+mechanism lives in the edition. Private-range and DNS-rebinding
+protection is the shell fetcher's responsibility and is documented as
+deferred.
+
+### Contribution points
+
+- `export.format`, `import.source`
+
+These gate contribution registration rather than a host import, so
+there is no call-site check — a plugin without them simply has its
+contribution refused at load.
 
 ## Install-time consent (I7.1)
 
@@ -229,7 +241,7 @@ Trust tier vs default-deny matrix (M1):
 | Concern | Crate / file |
 |---|---|
 | `Permission` enum + parser | `plamenix-plugin-host/src/capability.rs` |
-| Manifest enforcement (`requires_subprocess`) | `plamenix-plugin-host/src/manifest.rs` |
+| Manifest enforcement | `plamenix-plugin-host/src/manifest.rs` |
 | Subprocess defense-in-depth re-check | `plamenix-plugin-host/src/subprocess.rs` |
 | Install dialog | `plamenix-ui/src/plugins/PluginInstallDialog.tsx` |
 | First-use prompt | `plamenix-ui/src/plugins/FirstUsePermissionPrompt.tsx` |

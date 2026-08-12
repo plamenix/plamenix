@@ -463,10 +463,10 @@ Three touchpoints. No fourth — adding more clicks erodes trust.
 | Storage | Desktop | Web | Capability |
 |---|---|---|---|
 | Plugin code (read-only) | `~/.plamenix/plugins/<id>/` | `/var/lib/plamenix/plugins/<id>/` | implicit (host-managed) |
-| Plugin data (R/W) | `~/.plamenix/plugins/<id>/data/` | `/var/lib/plamenix/plugins/<id>/data/` | `fs:read:plugin-data`, `fs:write:plugin-data` (default-granted) |
-| Plugin settings | `~/.plamenix/plugins/<id>/settings.toml` | server SQLite per-plugin row | `settings:read`, `settings:write` (own scope only, default-granted) |
+| Plugin data (R/W) | `~/.plamenix/plugins/<id>/data/` | `/var/lib/plamenix/plugins/<id>/data/` | `fs.read.dir.plugin-data`, `fs.write.dir.plugin-data` (default-granted) |
+| Plugin settings | `~/.plamenix/plugins/<id>/settings.toml` | server SQLite per-plugin row | `settings.read`, `settings.write` (own scope only, default-granted) |
 | Secrets | OS keychain `dev.plamenix.plugins.<id>` | server keychain (e.g. Vault, env-injected) | `secrets:read`, `secrets:write` (per service key) |
-| Workspace files | project root | server-side configured | `fs:read:workspace`, `fs:write:workspace` (optional, install-prompted) |
+| Workspace files | project root | server-side configured | `fs.read.dir.workspace`, `fs.write.dir.workspace` (optional, install-prompted) |
 
 **Cross-plugin isolation enforced structurally**: WASI preopens hand the plugin a single `fs.directory` resource scoped to its own data dir. Plugin cannot enumerate or reach other plugin dirs. WASI does the path validation (no `..`, no abs paths, no out-of-tree symlinks).
 
@@ -570,7 +570,7 @@ The user's key differentiator. Plugins declare `targets = ["desktop", "web"]` or
 | `db.session:context.read` | ✓ | ✓ | U |
 | `fs:plugin-data` | ✓ (`~/.plamenix/...`) | ✓ (`/var/lib/plamenix/...`) | U (semantic same, path differs) |
 | `fs:workspace` | ✓ (user's project) | ✓ (server-configured) | U |
-| `net:fetch.https:<host>` | ✓ | ✓ | U |
+| `net.https.<host>` | ✓ | ✓ | U |
 | `secrets:*` | ✓ (OS keyring) | ✗ (no equivalent in M1 web) | D-only |
 | `notify:display` | ✓ (OS notification) | △ (in-browser toast, different shape) | D-preferred |
 | `clipboard:*` | ✓ (system) | ✓ (`navigator.clipboard`) | U |
@@ -605,7 +605,7 @@ Plugin authors write once, target both editions by default. Per-edition plugins 
 1. **Obsidian's TOFU global toggle** — POLA demands granularity. Refused.
 2. **VSCode's shared `state.vscdb`** — never give plugins shared writable state. Per-plugin storage only.
 3. **VSCode's process-isolation-as-security** — separate Node process with full user authority is not sandboxed. WASM Component Model is the actual boundary.
-4. **MV3's `<all_urls>`** — refuse manifests with unbounded `net:fetch` scope.
+4. **MV3's `<all_urls>`** — refuse manifests with unbounded `net.https` scope.
 5. **Install-time-only consent** — users learn to click through. Required = install-time, optional = first-use.
 6. **Remote code loading** — only signed `.plx` contents execute. No URL-loaded JS.
 7. **Ambient host imports** — every host function in plugin world is capability-checked. No "open this file" general API.
