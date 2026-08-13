@@ -17,16 +17,22 @@ subscription of yours will ever fire.
 The catalogue below is the **UI bus**. Almost none of it reaches WASM
 plugins today.
 
-> **What actually reaches a WASM plugin right now: `db/query/executed`,
-> and nothing else.** Both shells dispatch that one topic after a
-> statement batch. A plugin that declares `event_subscriptions` for any
-> other topic in this document will load, activate, show its
-> subscription in the plugins panel, and never be called.
+> **Every topic in this catalogue reaches WASM plugins.** The shell
+> forwards them from the UI bus to the host bus, so a manifest
+> subscription for any topic below is dispatched to `handle-event`.
 >
-> This is a gap, not a design: the UI bus grew first and the host
-> dispatch was wired for a single producer to prove the path. Bridging
-> the rest is tracked work, not a decision. Recorded here rather than
-> left for an author to discover by writing a plugin that does nothing.
+> Forwarding is **selective**: the shell asks the host which patterns
+> anything is subscribed to and sends only matching topics. Most of
+> these events originate in the renderer, so reaching a plugin costs a
+> round trip — a Tauri command on desktop, an HTTP request on web — and
+> `editor/changed` fires as the user types. With no plugin subscribed,
+> which is the usual case, nothing goes on the wire.
+>
+> Two consequences worth knowing. A payload has to survive
+> `JSON.stringify`, and one that cannot — a cycle, a `BigInt` — is
+> dropped with a warning rather than delivered. And payloads are capped
+> at 64 KiB; an oversized one is refused before the round trip rather
+> than by the host.
 
 ## Naming convention
 
@@ -174,7 +180,7 @@ flat list of topics under `[contributions]`:
 
 ```toml
 [contributions]
-event_subscriptions = ["db/query/executed"]
+event_subscriptions = ["query/executed"]
 ```
 
 The host dispatches matching events to the plugin's exported
