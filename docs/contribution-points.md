@@ -74,33 +74,45 @@ documentation, and an RFC (once the RFC process is live).
 | `icon-pack` | Register an icon pack. |
 | `keybinding.context` | Contribute key bindings scoped to a context. |
 
-## Manifest shape (excerpt)
+## Where contributions come from
+
+Two places, and the split is not arbitrary.
+
+**The manifest** carries only what the host must know *before* running
+any of the plugin's code: which sidebar panels exist, which event topics
+to deliver, and which interceptor points to consult. Those decide
+whether to load the plugin at all and what to show in the install
+dialog, so they cannot wait for the plugin to tell us.
 
 ```toml
-[contributions.ui]
-"data.cell-renderer" = [
-    { for = "BLOB:SUB_TYPE_TEXT", component = "MarkdownPreview" },
-]
-"data.export-format" = [
-    { id = "parquet", label = "Apache Parquet", command = "export.parquet" },
-]
-"sidebar.section" = [
-    { id = "favorites", label = "Favorites", icon = "star", component = "FavoritesPanel" },
-]
-"connection.auth-method" = [
-    { id = "win-cred", label = "Windows Credential Manager",
-      form = "WinCredForm", handler = "win_cred_login" },
-]
-"settings.panel" = [
-    { id = "my-plugin", label = "My Plugin", component = "MyPluginSettings" },
-]
+[contributions]
+event_subscriptions = ["query/executed"]
 
-[contributions.db]
-"db.dialect-converter" = [
-    { id = "fb-to-pg", source = "firebird", target = "postgresql",
-      handler = "convert_ddl" },
-]
+[[contributions.sidebar_panels]]
+id = "favorites"
+label = "Favorites"
+
+[[contributions.interceptors]]
+extension_point = "query.executing"
+purpose = "Refuse exports of restricted tables"
 ```
+
+Those three keys are the whole set, and an unknown key is refused.
+
+**Everything else registers at runtime**, from the ESM module at
+`entry_points.ui`, through the plugin API — cell renderers, export
+formats, importers, settings panels, dashboard sections, status-bar
+items, toolbar buttons, context-menu entries, completion providers,
+diagnostics, themes, auth providers, SQL formatters, object-inspector
+tabs. They are React components and functions; a TOML file cannot carry
+them, and the registry they land in is the same one the shell's own
+built-ins use.
+
+Earlier revisions of this document showed a `[contributions.ui]` section
+with quoted keys like `"data.cell-renderer"` and `"sidebar.section"`,
+and a `[contributions.db]` section for dialect converters. None of that
+existed. A manifest containing it parsed cleanly and contributed
+nothing.
 
 ## Discovery in the React shell
 
