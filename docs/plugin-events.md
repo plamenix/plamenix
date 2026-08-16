@@ -135,6 +135,12 @@ The split is load-bearing. An interceptor cannot become an event because it woul
 | `export/completed` | `{exportId, bytes, durationMs}` |
 | `export/failed` | `{exportId, error}` |
 
+### Sessions
+
+| Topic | Payload | Notes |
+|---|---|---|
+| `session/expired` | `{sessionId}` | Web edition only. The server reaped an idle attachment; the client did not ask and has no response to correlate, so without this its tab keeps claiming a session the server already closed. This is the one topic that originates on the server rather than in the UI. |
+
 ### Settings + theme
 
 | Topic | Payload |
