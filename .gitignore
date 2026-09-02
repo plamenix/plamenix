@@ -29,3 +29,7 @@ logs/
 .env.local
 *.local
 justfile.local
+
+# Local Firebird dev containers: database files are recreated by
+# `docker compose up -d` (+ seed.sh for 2.5), never committed.
+dev/*/data/

@@ -60,6 +60,25 @@ Versioning: [SemVer 2.0.0](https://semver.org/). First public release is `1.0.0-
 - Windows: SignPath signing pipeline activates post-1.0.0-beta
 - macOS: ad-hoc signing for testing only until Apple Developer Program registration (post-Aug 8, 2026)
 
+### Plugin suite (added 2026-05-27)
+
+Full plugin system shipped in M1 per `PLUGIN_ARCHITECTURE.md` (workspace-level design doc) and `PLUGIN_TRACKER.md` (live status). Sections I0–I9:
+
+- **I0** — Foundation: WIT contracts (4 worlds + orthogonal capabilities), capability grammar TOML schema, event + interceptor catalogs
+- **I1** — Web plugin host: `plamenix-plugin-host-node` napi crate wrapping the existing Rust host; Fastify integration
+- **I2** — React SDK: `@plamenix/plugin-react` npm package with `<PluginOutlet>` + `usePluginAPI` + ESM dynamic loading
+- **I3** — Contribution registry: singleton + manifest→registry on activate; first 3 consumers wired (`cell_renderers`, `export_formats`, `commands`)
+- **I4** — Built-in extractions: 9 first-party plugins (`@plamenix/plugin-{blob-renderer, csv-export, json-export, sql-export, xml-export, xlsx-export, tips-firebird, dba-toolbox, json-cell-renderer}`)
+- **I5** — Remaining 14 contribution points (keybindings, menus, toolbar_buttons, object_inspectors, schema_actions, sql_formatters, auth_providers, themes, settings_panels, dashboard_sections, status_bar_items, completion_providers, diagnostics_providers, import_sources)
+- **I6** — Dynamic surface: event bus (~30 events), 8 interceptor chains with Cancel/Replace semantics
+- **I7** — UX + tooling: install dialog, first-use prompt, Permissions panel, install/uninstall flows, `.plx` packaging spec, `plamenix-cli`, signature format + verifier
+- **I8** — Supervisor: store-per-plugin enforcement, restart policy from manifest, crash budget (3/60s → DISABLED)
+- **I9** — Tests + docs + release: E2E harness, per-edition smoke tests, plugin author tutorial, API reference, smoke test all 9 bundled plugins on both editions
+
+Tri-state portability (`targets = ["desktop", "web"]` or subset) is the key differentiator: same `.plx` runs on both editions when capabilities align; host filters at validate/install/runtime.
+
+Deferred beyond M1 (1.x roadmap): marketplace submission flow + audit, reproducible-build enforcement, community SDKs (Go/TS — per ADR 0010 Rust-only for 1.0.x), per-tenant plugin storage on web.
+
 ---
 
 ## Milestone #2 — Daily DBA tooling

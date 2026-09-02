@@ -46,24 +46,16 @@ optional = [
 wasm = "dist/plugin.wasm"                   # Rust half, relative to bundle root
 ui   = "dist/ui.mjs"                        # React half, relative to bundle root
 
-[runtime]
-requires_subprocess = false                 # true only for plugins needing raw OS access
+[contributions]
+event_subscriptions = ["query/executed"]    # topics the plugin's handle-event receives
 
-[contributions.ui]
-sidebar_panels = [
-    { id = "csv-export", label = "Export to CSV",
-      component = "ExportPanel", icon = "download" },
-]
-context_menu = [
-    { target = "table_row", label = "Export as CSV…",
-      command = "csv.export" },
-]
-table_viewers = []
+[[contributions.sidebar_panels]]
+id = "csv-export"
+label = "Export to CSV"
 
-[contributions.db]
-# Optional: register a dialect converter or driver.
-# dialect_converters = [{ id = "fb-to-csv", source = "firebird", target = "csv",
-#                         handler = "convert_dump" }]
+[[contributions.interceptors]]
+extension_point = "query.executing"         # consulted before the statement runs
+purpose = "Refuse exports of restricted tables"
 ```
 
 ## Required fields
@@ -108,10 +100,28 @@ Capability grammar lives in [capability-model.md](./capability-model.md).
 
 ## Contribution points
 
-`[contributions.ui]` and `[contributions.db]` enumerate the slots the
-plugin fills. Allowed keys are the bounded set described in
-[contribution-points.md](./contribution-points.md). Unknown keys cause
-the manifest to be rejected.
+`[contributions]` takes exactly three keys, and unknown ones are
+refused rather than ignored:
+
+- `sidebar_panels` — array of tables, each `{ id, label }`.
+- `event_subscriptions` — array of topic patterns; see
+  [plugin-events.md](./plugin-events.md).
+- `interceptors` — array of tables, each `{ extension_point, priority?,
+  purpose? }`; see [plugin-interceptors.md](./plugin-interceptors.md).
+  Each entry is checked against the capability its extension point
+  exposes, so an interceptor on `query.executing` must also request a
+  `db` capability.
+
+**UI contributions do not come from the manifest.** The plugin's
+`entry_points.ui` ESM module registers them at load time through the
+plugin API — cell renderers, export formats, settings panels, dashboard
+sections and the rest. See
+[contribution-points.md](./contribution-points.md).
+
+Earlier revisions of this document described `[contributions.ui]` and
+`[contributions.db]` sections. Neither has ever existed, and until the
+`deny_unknown_fields` that now backs the paragraph above, a manifest
+containing them parsed cleanly and contributed nothing.
 
 ## Trust tiers
 
