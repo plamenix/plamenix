@@ -46,9 +46,10 @@ If you do use the installers, the release notes carry the workaround for
 each platform. Linux packages are unaffected — `.deb`, `.rpm` and the
 AppImage carry no equivalent signing expectation.
 
-Either way, [building from source](#building-from-source) takes about
-twenty minutes, most of it unattended, and you end up trusting a
-toolchain you installed rather than a file you downloaded.
+Either way, [building from source](#building-from-source) is mostly
+unattended: the first build compiles the full Rust dependency tree and
+takes a while, and every build after that is incremental. You end up
+trusting a toolchain you installed rather than a file you downloaded.
 
 ## Building from source
 
