@@ -1,7 +1,6 @@
 # Plamenix
 
-A community-driven open-source IDE for Firebird databases. Funded by the
-[Firebird Foundation](https://firebirdsql.org/en/firebird-foundation/).
+A community-driven open-source IDE for Firebird databases.
 
 Plamenix ships as a **desktop application** (Tauri 2 + Rust) and a
 **web edition** (Fastify + React) from a shared codebase. Both editions
