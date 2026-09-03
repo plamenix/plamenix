@@ -6,8 +6,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/). First public release is `1.0.0-
 
 ## Milestone #1 — Plamenix MVP
 
-**Target:** early-to-mid June 2026
-**Release:** `1.0.0-beta`
+**Released:** 3 September 2026 · `1.0.0-beta`
+**Original target:** early-to-mid June 2026
+
+Roughly three months later than planned. The delay was almost entirely
+an architecture review in August 2026 that found substantial parts of
+the plugin host unreachable from any production call path — see
+[`docs/architecture-review-2026-08-06.md`](./docs/architecture-review-2026-08-06.md)
+and the remediation plan beside it.
 
 ### Architectural port
 

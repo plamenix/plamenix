@@ -74,8 +74,11 @@ editions import its built output, and a fresh clone does not have it.
 
 ## Roadmap
 
-See [`MILESTONES.md`](./MILESTONES.md). Current target: `1.0.0-beta` in
-mid-June 2026.
+`1.0.0-beta` was released on 3 September 2026 — see the
+[release](https://github.com/plamenix/plamenix-desktop/releases/tag/1.0.0-beta).
+
+See [`MILESTONES.md`](./MILESTONES.md) for what it contains and what
+comes next.
 
 ## Licence
 

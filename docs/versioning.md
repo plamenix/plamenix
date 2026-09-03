@@ -121,8 +121,8 @@ not affect precedence.
 
 | Stage | When | Notes |
 |-------|------|-------|
-| `1.0.0-beta` | Mid-June 2026 | First public release (per `MILESTONES.md`). |
-| `1.0.0-beta.x` | Through summer 2026 | Bug fix and feedback cycle. Breaking changes allowed. |
+| `1.0.0-beta` | **Released 3 Sep 2026** | First public release. Targeted mid-June; see `MILESTONES.md`. |
+| `1.0.0-beta.x` | From Sep 2026 | Bug fix and feedback cycle. Breaking changes allowed. |
 | `1.0.0-rc.1` | TBD | API freeze. |
 | `1.0.0` | TBD | Stable. Long-term API stability commitments begin. |
 
