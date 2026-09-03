@@ -24,9 +24,31 @@ same parent directory:
 
 Prebuilt installers for macOS, Windows and Linux are on the
 [latest release](https://github.com/plamenix/plamenix-desktop/releases).
-They are not code-signed yet, so macOS reports an unverified developer
-and Windows shows a SmartScreen warning; the release notes explain how
-to get past both.
+They are built in the open by
+[GitHub Actions](https://github.com/plamenix/plamenix-desktop/blob/main/.github/workflows/release.yml) from the tagged
+commit — no binary is uploaded from anyone's laptop.
+
+**On macOS and Windows we currently recommend building from source
+instead.** The releases are not code-signed, and we would rather say
+plainly what that means than tell you how to click past a warning:
+
+- macOS reports *"cannot be opened because the developer cannot be
+  verified"*, and Windows shows a SmartScreen prompt. Those warnings are
+  correct. Nothing has vouched for the binary.
+- Getting past them means overriding your operating system's judgement
+  about software from a stranger on the internet. That is a habit worth
+  keeping, not one to spend on us.
+- Signing certificates cost money the project does not currently have.
+  When that changes, the workflow already has the hooks and this section
+  goes away.
+
+If you do use the installers, the release notes carry the workaround for
+each platform. Linux packages are unaffected — `.deb`, `.rpm` and the
+AppImage carry no equivalent signing expectation.
+
+Either way, [building from source](#building-from-source) takes about
+twenty minutes, most of it unattended, and you end up trusting a
+toolchain you installed rather than a file you downloaded.
 
 ## Building from source
 
