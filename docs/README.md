@@ -10,6 +10,15 @@ exploration — every line reflects a choice the project has committed to.
 
 ## Index
 
+### Building
+
+- [build-prerequisites.md](./build-prerequisites.md) — Toolchains,
+  platform libraries, the sibling repository layout. Start here.
+- [build-desktop.md](./build-desktop.md) — Tauri desktop edition:
+  running it, producing installers, the bundled `fbclient`.
+- [build-web.md](./build-web.md) — Self-hosted web edition: the native
+  addon, configuration, what to set before exposing it to a network.
+
 ### Architecture & principles
 
 - [architecture.md](./architecture.md) — Overall mental model, five-repo

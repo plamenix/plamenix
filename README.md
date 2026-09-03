@@ -20,17 +20,34 @@ same parent directory:
 | `plamenix-desktop/` | Tauri 2 desktop edition. |
 | `plamenix-web/` | Fastify + React web edition (self-hostable). |
 
-## Quick start
+## Installing
+
+Prebuilt installers for macOS, Windows and Linux are on the
+[latest release](https://github.com/plamenix/plamenix-desktop/releases).
+They are not code-signed yet, so macOS reports an unverified developer
+and Windows shows a SmartScreen warning; the release notes explain how
+to get past both.
+
+## Building from source
+
+Full instructions:
+
+- [Build prerequisites](./docs/build-prerequisites.md) — toolchains,
+  platform libraries, repository layout. Start here.
+- [Building the desktop edition](./docs/build-desktop.md)
+- [Building the web edition](./docs/build-web.md)
+
+The short version, once the prerequisites are installed and all five
+repositories are cloned as siblings:
 
 ```sh
-git clone <plamenix-meta-workspace-url> plamenix
-cd plamenix
-just setup       # clones sibling repos, wires local path overrides
-just dev         # runs the desktop edition against local siblings
+cd plamenix && just setup          # verifies layout and toolchains
+cd ../plamenix-ui && pnpm install && pnpm build
+cd ../plamenix-desktop && just setup && just dev
 ```
 
-(Until the public release infrastructure is live, sibling repos are local
-only. See `CONTRIBUTING.md` for the bootstrap procedure.)
+Building `plamenix-ui` first is not optional: the desktop and web
+editions import its built output, and a fresh clone does not have it.
 
 ## Roadmap
 

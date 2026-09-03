@@ -1,7 +1,6 @@
 # Contributing to Plamenix
 
-Thanks for your interest in contributing. Plamenix is community-driven and
-funded by the [Firebird Foundation](https://firebirdsql.org/en/firebird-foundation/).
+Thanks for your interest in contributing. Plamenix is community-driven.
 Contributions of every shape — code, documentation, plugins, bug reports,
 design feedback — are welcome.
 
