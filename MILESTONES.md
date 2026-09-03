@@ -102,7 +102,7 @@ Deferred beyond M1 (1.x roadmap): marketplace submission flow + audit, reproduci
 
 ## Milestone #2 — Daily DBA tooling
 
-**Target:** September 2026
+**Target:** December 2026
 
 - **Plan Analyzer + Performance dashboard** — visual `EXPLAIN PLAN`, index usage statistics, query cost estimates
 - **Grant Manager / User Manager UI** — manage GRANT/REVOKE, users, roles, system privileges
