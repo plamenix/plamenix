@@ -61,10 +61,23 @@ and the remediation plan beside it.
 
 ### Release operations
 
-- GitHub Actions build matrix: Windows MSI, macOS DMG, Linux AppImage + .deb, Docker images for web edition
-- Linux: SHA-256 checksums per release
-- Windows: SignPath signing pipeline activates post-1.0.0-beta
-- macOS: ad-hoc signing for testing only until Apple Developer Program registration (post-Aug 8, 2026)
+Shipped in `1.0.0-beta`:
+
+- GitHub Actions build matrix — macOS (arm64 + x64) `.dmg`, Windows
+  `-setup.exe`, Linux `.deb` / `.rpm` / `.AppImage`
+
+Not shipped, and the reasons:
+
+- **Windows MSI** — the format requires any pre-release identifier to be
+  numeric and at most 65535, so `1.0.0-beta` cannot produce one at all.
+  The NSIS `-setup.exe` carries the same payload. An MSI becomes
+  possible at `1.0.0`.
+- **Docker images for the web edition** — not built.
+- **SHA-256 checksums per release** — not published.
+- **Windows signing** (SignPath) and **macOS signing** — neither is in
+  place, so both platforms warn on launch. The release workflow has the
+  hooks; what is missing is certificates. Until then the README
+  recommends building from source on those two platforms.
 
 ### Plugin suite (added 2026-05-27)
 
